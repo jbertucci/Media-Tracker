@@ -5,3 +5,4 @@ tmdb_analytics.db
 __pycache__/
 *.pyc
 *.key
+repo.txt
