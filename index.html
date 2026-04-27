@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Media Tracker</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface2: #252525;
+      --accent: #e50914;
+      --text: #e0e0e0;
+      --muted: #888;
+      --border: #333;
+      --radius: 10px;
+      --green: #4caf50;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--surface);
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 { font-size: 1.15rem; font-weight: 700; color: var(--accent); }
+
+    .tabs {
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.9rem;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      user-select: none;
+    }
+
+    .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+    main { flex: 1; overflow-y: auto; padding: 14px; }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .search-row { display: flex; gap: 8px; margin-bottom: 14px; }
+
+    input[type="text"], input[type="date"], input[type="password"] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 10px 14px;
+      font-size: 1rem;
+      width: 100%;
+      outline: none;
+      -webkit-appearance: none;
+      color-scheme: dark;
+    }
+
+    input:focus { border-color: var(--accent); }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 10px 18px;
+      font-size: 1rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:active { opacity: 0.8; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-icon {
+      background: transparent;
+      color: var(--muted);
+      font-size: 1.2rem;
+      padding: 4px 8px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .card-body { padding: 12px; }
+    .card-title { font-weight: 600; font-size: 1rem; }
+    .card-year { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+
+    .card-overview {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 6px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card-actions {
+      padding: 10px 12px;
+      background: var(--surface2);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .card-actions input[type="date"] { padding: 7px 10px; font-size: 0.9rem; }
+    .card-actions button { padding: 7px 16px; font-size: 0.9rem; }
+
+    .btn-added { background: var(--green) !important; }
+
+    .movie-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .movie-item .info { flex: 1; min-width: 0; }
+    .movie-item .m-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .movie-item .m-meta { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+
+    .empty { text-align: center; color: var(--muted); padding: 48px 20px; }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(16px);
+      background: var(--surface2);
+      color: var(--text);
+      padding: 10px 20px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      font-size: 0.88rem;
+      opacity: 0;
+      transition: all 0.25s;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 100;
+    }
+
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast.success { border-color: var(--green); }
+    .toast.error { border-color: var(--accent); }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 200;
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .modal h2 { font-size: 1.1rem; margin-bottom: 6px; }
+    .modal p { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; line-height: 1.4; }
+    .modal input { margin-bottom: 12px; }
+    .modal button { width: 100%; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading { text-align: center; color: var(--muted); padding: 32px; }
+
+    /* ── Stats ── */
+    .stat-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 8px; text-align: center; }
+    .stat-num { font-size: 1.5rem; font-weight: 700; color: var(--accent); line-height: 1; }
+    .stat-label { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+
+    .highlights { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 16px; }
+    .hl-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; min-width: 0; }
+    .hl-tag { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 3px; }
+    .hl-val { font-size: 0.88rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hl-sub { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+
+    .stat-section { margin-bottom: 18px; }
+    .stat-section h3 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 9px; }
+
+    .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .bar-label { width: 110px; font-size: 0.8rem; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+    .bar-track { flex: 1; height: 22px; background: var(--surface2); border-radius: 4px; overflow: hidden; position: relative; }
+    .bar-fill { height: 100%; border-radius: 4px; transition: width 0.55s ease-out; }
+    .bar-count { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); font-size: 0.72rem; font-weight: 600; }
+
+    .split-bar { height: 26px; display: flex; border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+    .split-seg { height: 100%; transition: width 0.55s ease-out; }
+    .split-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.8rem; }
+    .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+    .bar-row.clickable, .legend-item.clickable { cursor: pointer; }
+    .bar-row.clickable:hover .bar-label { color: var(--accent); }
+    .legend-item.clickable:hover { opacity: 0.8; }
+
+    .drill-modal .modal { max-height: 80dvh; display: flex; flex-direction: column; }
+    .drill-modal .modal h2 { flex-shrink: 0; }
+    .drill-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-shrink: 0; }
+    .drill-header h2 { font-size: 1rem; }
+    .drill-scroll { overflow-y: auto; flex: 1; }
+    .drill-item { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+    .drill-item:last-child { border-bottom: none; }
+    .drill-num { color: var(--muted); font-size: 0.78rem; width: 22px; text-align: right; flex-shrink: 0; }
+    .drill-info { flex: 1; min-width: 0; }
+    .drill-title { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .drill-meta { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
+
+    /* ── Battle overlay ── */
+    #battle-overlay { position:fixed; inset:0; background:var(--bg); z-index:150; display:flex; flex-direction:column; overflow:hidden; }
+    .bo-header { background:var(--surface); border-bottom:1px solid var(--border); padding:14px 16px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+    .bo-header .bo-title { font-weight:700; color:var(--accent); font-size:1rem; }
+    #bo-battle, #bo-rankings { flex:1; overflow-y:auto; display:flex; flex-direction:column; }
+    .battle-progress { text-align:center; color:var(--muted); font-size:0.8rem; padding:8px 16px; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .battle-arena { display:flex; gap:8px; padding:12px; align-items:flex-start; }
+    .battle-card { flex:1; background:var(--surface); border:2px solid var(--border); border-radius:var(--radius); cursor:pointer; overflow:hidden; transition:border-color 0.15s, opacity 0.3s; -webkit-tap-highlight-color:transparent; }
+    .battle-card:active { opacity:0.85; }
+    .battle-poster { width:100%; aspect-ratio:2/3; object-fit:cover; display:block; background:var(--surface2); }
+    .battle-details { padding:8px; }
+    .battle-title { font-weight:600; font-size:0.82rem; line-height:1.3; }
+    .battle-year { color:var(--muted); font-size:0.72rem; margin-bottom:5px; }
+    .battle-fact { font-size:0.72rem; color:var(--muted); margin-bottom:3px; line-height:1.3; }
+    .battle-fact b { color:var(--text); font-weight:600; margin-right:3px; }
+    .battle-vs { align-self:center; font-size:0.9rem; font-weight:700; color:var(--muted); flex-shrink:0; }
+    .battle-winner { border-color:var(--green) !important; }
+    .battle-loser { opacity:0.35 !important; pointer-events:none; }
+    .battle-placed { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; }
+    .bp-rank { font-size:3.5rem; font-weight:700; color:var(--accent); line-height:1; }
+    .bp-label { color:var(--muted); margin-top:8px; font-size:0.9rem; }
+    .rank-item { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--border); }
+    .rank-num { color:var(--accent); font-weight:700; font-size:0.9rem; width:30px; text-align:right; flex-shrink:0; }
+    .rank-info { flex:1; min-width:0; }
+    .rank-title { font-weight:600; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .rank-meta { color:var(--muted); font-size:0.75rem; margin-top:1px; }
+    .bo-section-label { padding:10px 16px 6px; color:var(--muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.07em; }
+    .battle-btn { width:100%; background:var(--surface); color:var(--text); border:1px solid var(--border); margin-bottom:12px; }
+    .battle-btn:active { background:var(--surface2); }
+
+    .poster-sm { width: 40px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--surface2); }
+    .poster-xs { width: 33px; height: 50px; object-fit: cover; border-radius: 3px; flex-shrink: 0; background: var(--surface2); }
+    .card-poster { width: 54px; height: 81px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--surface2); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Media Tracker</h1>
+  <button class="btn-icon" onclick="showKeyModal()" title="Settings">&#9881;</button>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('search')">Search</div>
+  <div class="tab" onclick="switchTab('movies')">My Movies</div>
+  <div class="tab" onclick="switchTab('stats')">Stats</div>
+</div>
+
+<main>
+  <div id="search-view" class="view active">
+    <div class="search-row">
+      <input type="text" id="search-input" placeholder="Movie title..."
+             onkeydown="if(event.key==='Enter') doSearch()">
+      <button id="search-btn" onclick="doSearch()">Search</button>
+    </div>
+    <div id="search-results"></div>
+  </div>
+
+  <div id="movies-view" class="view">
+    <button class="battle-btn" onclick="openBattle()">&#9876; Movie Battles</button>
+    <div id="movies-list"><div class="loading">Loading&hellip;</div></div>
+  </div>
+
+  <div id="stats-view" class="view">
+    <div id="stats-content"><div class="loading">Loading&hellip;</div></div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<div id="battle-overlay" style="display:none">
+  <div class="bo-header">
+    <button class="btn-icon" onclick="closeBattle()">&#8592;</button>
+    <span class="bo-title" id="bo-title">Movie Battles</span>
+    <button class="btn-icon" id="bo-right-btn" onclick="showBattleRankings()">Rankings</button>
+  </div>
+  <div id="bo-battle">
+    <div class="battle-progress" id="bo-progress"></div>
+    <div class="battle-arena" id="bo-arena"></div>
+  </div>
+  <div id="bo-rankings" style="display:none">
+    <div id="bo-rankings-list"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop drill-modal" id="drill-modal" style="display:none" onclick="if(event.target===this)closeDrill()">
+  <div class="modal">
+    <div class="drill-header">
+      <h2 id="drill-title"></h2>
+      <button class="btn-icon" onclick="closeDrill()" style="font-size:1.3rem">&times;</button>
+    </div>
+    <div class="drill-scroll" id="drill-list"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="key-modal">
+  <div class="modal">
+    <h2>API Key</h2>
+    <p>Enter the key from your <code>flask_api_key.txt</code> file to access your tracker.</p>
+    <input type="password" id="key-input" placeholder="Your API key"
+           onkeydown="if(event.key==='Enter') saveKey()">
+    <button onclick="saveKey()">Save &amp; Connect</button>
+  </div>
+</div>
+
+<script>
+  let apiKey = localStorage.getItem('mediaApiKey') || '';
+
+  if (apiKey) {
+    document.getElementById('key-modal').style.display = 'none';
+  }
+
+  // ── Auth & fetch ──────────────────────────────────────────────────────────
+
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(path, {
+      ...options,
+      headers: { 'X-API-Key': apiKey, ...(options.headers || {}) },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    return json;
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────────────────
+
+  function toast(msg, type = '') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `toast ${type} show`;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+
+  function switchTab(tab) {
+    const tabs = ['search', 'movies', 'stats'];
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', tabs[i] === tab);
+    });
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById(`${tab}-view`).classList.add('active');
+    if (tab === 'movies') loadMovies();
+    if (tab === 'stats') loadStats();
+  }
+
+  // ── API key modal ─────────────────────────────────────────────────────────
+
+  function showKeyModal() {
+    document.getElementById('key-input').value = apiKey;
+    document.getElementById('key-modal').style.display = 'flex';
+    setTimeout(() => document.getElementById('key-input').focus(), 100);
+  }
+
+  function saveKey() {
+    const val = document.getElementById('key-input').value.trim();
+    if (!val) return;
+    apiKey = val;
+    localStorage.setItem('mediaApiKey', val);
+    document.getElementById('key-modal').style.display = 'none';
+    toast('API key saved', 'success');
+  }
+
+  // ── Search ────────────────────────────────────────────────────────────────
+
+  async function doSearch() {
+    const title = document.getElementById('search-input').value.trim();
+    if (!title) return;
+
+    const btn = document.getElementById('search-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    const resultsEl = document.getElementById('search-results');
+    resultsEl.innerHTML = '';
+
+    try {
+      const results = await apiFetch(`/search?title=${encodeURIComponent(title)}`);
+      if (!results.length) {
+        resultsEl.innerHTML = '<div class="empty">No results found.</div>';
+        return;
+      }
+      resultsEl.innerHTML = results.map(r => `
+        <div class="card">
+          <div class="card-body" style="display:flex;gap:12px;align-items:flex-start">
+            ${posterImg(r.poster_path, 'card-poster', 'w92')}
+            <div style="flex:1;min-width:0">
+              <div class="card-title">${esc(r.title)}</div>
+              <div class="card-year">${r.year || 'Year unknown'}</div>
+              ${r.overview ? `<div class="card-overview">${esc(r.overview)}</div>` : ''}
+            </div>
+          </div>
+          <div class="card-actions">
+            <input type="date" id="date-${r.id}" value="${today()}">
+            <button data-id="${r.id}" data-title="${esc(r.title)}" data-date="date-${r.id}"
+                    onclick="addMovieBtn(this)">Add</button>
+          </div>
+        </div>
+      `).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Search';
+    }
+  }
+
+  // ── Add movie ─────────────────────────────────────────────────────────────
+
+  function addMovieBtn(btn) {
+    const { id, title, date } = btn.dataset;
+    addMovie(parseInt(id), title, date, btn);
+  }
+
+  async function addMovie(tmdbId, title, dateInputId, btn) {
+    const dateVal = document.getElementById(dateInputId).value;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    try {
+      await apiFetch('/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmdb_id: tmdbId, date_watched: dateVal || null }),
+      });
+      btn.textContent = '✓ Added';
+      btn.classList.add('btn-added');
+      toast(`Added: ${title}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Add';
+    }
+  }
+
+  // ── Movie list ────────────────────────────────────────────────────────────
+
+  async function loadMovies() {
+    const el = document.getElementById('movies-list');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      const movies = await apiFetch('/movies');
+      if (!movies.length) {
+        el.innerHTML = '<div class="empty">No movies yet.</div>';
+        return;
+      }
+      el.innerHTML = movies.map(m => `
+        <div class="movie-item" id="mi-${m.id}">
+          ${posterImg(m.poster_path, 'poster-sm')}
+          <div class="info">
+            <div class="m-title">${esc(m.title)}</div>
+            <div class="m-meta">${m.year || '—'} &middot; ${m.watch_count}x watched${m.last_watched ? ' &middot; ' + m.last_watched.slice(0,10) : ''}</div>
+          </div>
+          <button class="btn-icon" data-id="${m.id}" data-title="${esc(m.title)}"
+                  onclick="removeMovieBtn(this)" title="Remove">&times;</button>
+        </div>
+      `).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  // ── Remove movie ──────────────────────────────────────────────────────────
+
+  function removeMovieBtn(btn) {
+    removeMovie(btn.dataset.id, btn.dataset.title);
+  }
+
+  async function removeMovie(id, title) {
+    if (!confirm(`Remove "${title}"?`)) return;
+    try {
+      await apiFetch(`/movie/${id}`, { method: 'DELETE' });
+      document.getElementById(`mi-${id}`)?.remove();
+      toast(`Removed: ${title}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+
+  async function loadStats() {
+    const el = document.getElementById('stats-content');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      renderStats(await apiFetch('/stats'));
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function renderStats(s) {
+    const el = document.getElementById('stats-content');
+    const h = s.highlights;
+
+    const highlights = [
+      h.longest     ? { tag: 'Longest Film',    val: h.longest.title,     sub: `${h.longest.runtime} min` }       : null,
+      h.most_watched? { tag: 'Most Rewatched',  val: h.most_watched.title, sub: `${h.most_watched.watch_count}× watched` } : null,
+      h.top_rated   ? { tag: 'Highest Rated',   val: h.top_rated.title,   sub: `★ ${h.top_rated.vote_average}` }  : null,
+    ].filter(Boolean);
+
+    el.innerHTML = `
+      <div class="stat-summary">
+        <div class="stat-card"><div class="stat-num">${s.summary.total_films}</div><div class="stat-label">Films</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.total_hours}h</div><div class="stat-label">Watched</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.avg_rating ?? '—'}</div><div class="stat-label">Avg Rating</div></div>
+      </div>
+
+      ${highlights.length ? `<div class="highlights">${highlights.map(h => `
+        <div class="hl-card">
+          <div class="hl-tag">${esc(h.tag)}</div>
+          <div class="hl-val">${esc(h.val)}</div>
+          <div class="hl-sub">${esc(h.sub)}</div>
+        </div>`).join('')}</div>` : ''}
+
+      ${barsHTML('Top Directors',         s.top_directors,  '#e50914', 'director')}
+      ${barsHTML('Top Cast (Lead Roles)', s.top_actors,     '#5b8dee', 'actor')}
+      ${barsHTML('Genres',                s.top_genres,     '#4caf50', 'genre')}
+      ${barsHTML('Top Release Years',     s.top_years,      '#ff9800', 'year')}
+      ${barsHTML('By Decade',             s.decades,        '#ff9800', 'decade')}
+      ${splitBarHTML('Cast Gender',       s.cast_gender,    'gender')}
+      ${s.cast_ethnicity.length ? barsHTML('Cast Ethnicity', s.cast_ethnicity, '#7c5cbf', 'ethnicity') : ''}
+    `;
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelectorAll('[data-w]').forEach(b => { b.style.width = b.dataset.w; });
+    }));
+  }
+
+  function barsHTML(title, items, color, drillType) {
+    if (!items?.length) return '';
+    const max = Math.max(...items.map(i => i.count));
+    return `<div class="stat-section"><h3>${esc(title)}</h3>${items.map(item => {
+      const name  = item.name || item.label;
+      const pct   = (item.count / max * 100).toFixed(1);
+      const click = drillType ? `class="bar-row clickable" data-drill-type="${drillType}" data-drill-val="${esc(name)}" onclick="drillRow(this)"` : `class="bar-row"`;
+      return `<div ${click}>
+        <div class="bar-label" title="${esc(name)}">${esc(name)}</div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:0; background:${color}" data-w="${pct}%"></div>
+          <span class="bar-count">${item.count}</span>
+        </div></div>`;
+    }).join('')}</div>`;
+  }
+
+  function splitBarHTML(title, items, drillType) {
+    if (!items?.length) return '';
+    const total = items.reduce((s, i) => s + i.count, 0);
+    if (!total) return '';
+    const colors = { Female: '#e8528a', Male: '#5b8dee', 'Non-Binary': '#7c5cbf' };
+    return `<div class="stat-section"><h3>${esc(title)}</h3>
+      <div class="split-bar">${items.map(i => {
+        const pct   = (i.count / total * 100).toFixed(1);
+        const color = colors[i.label] || '#888';
+        return `<div class="split-seg" style="width:0; background:${color}" data-w="${pct}%" title="${esc(i.label)}: ${pct}%"></div>`;
+      }).join('')}</div>
+      <div class="split-legend">${items.map(i => {
+        const pct   = (i.count / total * 100).toFixed(0);
+        const color = colors[i.label] || '#888';
+        const click = drillType ? `class="legend-item clickable" data-drill-type="${drillType}" data-drill-val="${esc(i.label)}" onclick="drillRow(this)"` : `class="legend-item"`;
+        return `<div ${click}><span class="legend-dot" style="background:${color}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
+      }).join('')}</div>
+    </div>`;
+  }
+
+  // ── Battle ────────────────────────────────────────────────────────────────
+
+  function openBattle() {
+    document.getElementById('battle-overlay').style.display = 'flex';
+    document.getElementById('bo-battle').style.display = 'flex';
+    document.getElementById('bo-rankings').style.display = 'none';
+    document.getElementById('bo-title').textContent = 'Movie Battles';
+    document.getElementById('bo-right-btn').textContent = 'Rankings';
+    document.getElementById('bo-right-btn').onclick = showBattleRankings;
+    loadBattle();
+  }
+
+  function closeBattle() {
+    document.getElementById('battle-overlay').style.display = 'none';
+  }
+
+  async function loadBattle() {
+    document.getElementById('bo-arena').innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      const data = await apiFetch('/battle/next');
+      renderBattleArena(data);
+    } catch (e) {
+      document.getElementById('bo-arena').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
+  }
+
+  function renderBattleArena(data) {
+    document.getElementById('bo-progress').textContent =
+      `${data.ranked_count} of ${data.total_films} ranked`;
+    document.getElementById('bo-arena').innerHTML =
+      battleCardHTML(data.challenger) +
+      '<div class="battle-vs">VS</div>' +
+      battleCardHTML(data.opponent);
+  }
+
+  function battleCardHTML(film) {
+    const url = posterUrl(film.poster_path, 'w185');
+    const poster = url
+      ? `<img class="battle-poster" src="${url}" alt="" loading="lazy">`
+      : `<div class="battle-poster"></div>`;
+    return `<div class="battle-card" data-id="${film.id}" onclick="chooseSide(this)">
+      ${poster}
+      <div class="battle-details">
+        <div class="battle-title">${esc(film.title)}</div>
+        <div class="battle-year">${film.year || '—'}</div>
+        ${film.director ? `<div class="battle-fact"><b>Dir</b>${esc(film.director)}</div>` : ''}
+        ${film.cast?.length ? `<div class="battle-fact"><b>Cast</b>${film.cast.map(esc).join(', ')}</div>` : ''}
+        ${film.composer ? `<div class="battle-fact"><b>Music</b>${esc(film.composer)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  async function chooseSide(card) {
+    const arena = document.getElementById('bo-arena');
+    arena.querySelectorAll('.battle-card').forEach(c => { c.onclick = null; });
+    card.classList.add('battle-winner');
+    arena.querySelectorAll('.battle-card').forEach(c => {
+      if (c !== card) c.classList.add('battle-loser');
+    });
+
+    await new Promise(r => setTimeout(r, 500));
+
+    try {
+      const result = await apiFetch('/battle/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ winner_id: parseInt(card.dataset.id) }),
+      });
+
+      if (result.status === 'placed') {
+        arena.innerHTML = `<div class="battle-placed"><div class="bp-rank">#${result.new_rank}</div><div class="bp-label">Ranked!</div></div>`;
+        await new Promise(r => setTimeout(r, 900));
+      }
+
+      loadBattle();
+    } catch (e) {
+      toast(e.message, 'error');
+      loadBattle();
+    }
+  }
+
+  async function showBattleRankings() {
+    document.getElementById('bo-battle').style.display = 'none';
+    document.getElementById('bo-rankings').style.display = 'flex';
+    document.getElementById('bo-title').textContent = 'Rankings';
+    document.getElementById('bo-right-btn').textContent = '← Battle';
+    document.getElementById('bo-right-btn').onclick = showBattleArena;
+
+    const el = document.getElementById('bo-rankings-list');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      const rankings = await apiFetch('/battle/rankings');
+      if (!rankings.length) {
+        el.innerHTML = '<div class="empty">No rankings yet — start battling!</div>';
+        return;
+      }
+      el.innerHTML = `<div class="bo-section-label">Ranked Films</div>` +
+        rankings.map(r => `
+          <div class="rank-item">
+            <span class="rank-num">#${r.rank}</span>
+            ${posterImg(r.poster_path, 'poster-xs')}
+            <div class="rank-info">
+              <div class="rank-title">${esc(r.title)}</div>
+              <div class="rank-meta">${r.year || '—'} &middot; Ranked ${r.date_ranked ? r.date_ranked.slice(0,10) : '?'}</div>
+            </div>
+          </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  function showBattleArena() {
+    document.getElementById('bo-rankings').style.display = 'none';
+    document.getElementById('bo-battle').style.display = 'flex';
+    document.getElementById('bo-title').textContent = 'Movie Battles';
+    document.getElementById('bo-right-btn').textContent = 'Rankings';
+    document.getElementById('bo-right-btn').onclick = showBattleRankings;
+  }
+
+  // ── Drill-down ────────────────────────────────────────────────────────────
+
+  function drillRow(el) {
+    drillDown(el.dataset.drillType, el.dataset.drillVal);
+  }
+
+  async function drillDown(type, value) {
+    const apiValue = type === 'decade' ? value.replace(/s$/i, '') : value;
+    document.getElementById('drill-title').textContent = value;
+    document.getElementById('drill-list').innerHTML = '<div class="loading">Loading&hellip;</div>';
+    document.getElementById('drill-modal').style.display = 'flex';
+
+    try {
+      const films = await apiFetch(`/stats/films?type=${encodeURIComponent(type)}&value=${encodeURIComponent(apiValue)}`);
+      if (!films.length) {
+        document.getElementById('drill-list').innerHTML = '<div class="empty">No films found.</div>';
+        return;
+      }
+      document.getElementById('drill-list').innerHTML = films.map((f, i) => `
+        <div class="drill-item">
+          <span class="drill-num">${i + 1}</span>
+          ${posterImg(f.poster_path, 'poster-xs')}
+          <div class="drill-info">
+            <div class="drill-title">${esc(f.title)}</div>
+            <div class="drill-meta">${f.year || '—'}${f.rating ? ' &middot; ★ ' + f.rating : ''}</div>
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      document.getElementById('drill-modal').style.display = 'none';
+    }
+  }
+
+  function closeDrill() {
+    document.getElementById('drill-modal').style.display = 'none';
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  const TMDB_IMG = 'https://image.tmdb.org/t/p/';
+  function posterUrl(path, size = 'w92') {
+    return path ? `${TMDB_IMG}${size}${path}` : null;
+  }
+  function posterImg(path, cls, size = 'w92') {
+    const url = posterUrl(path, size);
+    return url
+      ? `<img class="${cls}" src="${url}" alt="" loading="lazy">`
+      : `<div class="${cls}"></div>`;
+  }
+
+  function today() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function esc(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(python -c \"import flask; print\\('Flask', flask.__version__\\)\")",
+      "Bash(python3 -c \"import flask; print\\('Flask', flask.__version__\\)\")",
+      "Bash(py -c \"import flask; print\\('Flask', flask.__version__\\)\")",
+      "Bash(where py *)",
+      "Bash(where python3 *)",
+      "Read(//c/Users/jbert/AppData/Local/Programs/Python//**)",
+      "Read(//c/Users/jbert/miniconda3/**)",
+      "Bash(conda run *)",
+      "Bash(py -3.9 -c \"import flask; print\\('Flask', flask.__version__\\)\")",
+      "Bash(ipconfig)",
+      "Bash(tailscale ip *)"
+    ]
+  }
+}
