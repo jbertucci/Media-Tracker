@@ -759,6 +759,9 @@
               <option value="dropped">Dropped</option>
             </select>
             <input type="date" id="gdate-${r.id}" value="${today()}" style="display:none">
+            <label id="g100-label-${r.id}" style="display:none;font-size:0.8rem;color:var(--muted);white-space:nowrap;cursor:pointer">
+              <input type="checkbox" id="g100-${r.id}"> 100%
+            </label>
             <button data-id="${r.id}" data-name="${esc(r.name)}" onclick="addGameBtn(this)">Add</button>
           </div>
         </div>`).join('');
@@ -774,8 +777,11 @@
 
   function toggleGameDate(id) {
     const status = document.getElementById(`gstatus-${id}`)?.value;
+    const show = ['completed', 'dropped'].includes(status);
     const dateEl = document.getElementById(`gdate-${id}`);
-    if (dateEl) dateEl.style.display = ['completed', 'dropped'].includes(status) ? 'block' : 'none';
+    const labelEl = document.getElementById(`g100-label-${id}`);
+    if (dateEl) dateEl.style.display = show ? 'block' : 'none';
+    if (labelEl) labelEl.style.display = status === 'completed' ? 'flex' : 'none';
   }
 
   async function addGameBtn(btn) {
@@ -783,14 +789,15 @@
     const name = btn.dataset.name;
     const status = document.getElementById(`gstatus-${id}`).value;
     const dateEl = document.getElementById(`gdate-${id}`);
-    const date_completed = dateEl?.style.display !== 'none' ? dateEl.value : null;
+    const date_completed   = dateEl?.style.display !== 'none' ? dateEl.value : null;
+    const completed_fully  = document.getElementById(`g100-${id}`)?.checked || false;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
     try {
       await apiFetch('/games/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ igdb_id: id, status, date_completed: date_completed || null }),
+        body: JSON.stringify({ igdb_id: id, status, date_completed: date_completed || null, completed_fully }),
       });
       btn.textContent = '✓ Added';
       btn.classList.add('btn-added');
@@ -820,6 +827,7 @@
               ${g.year || '—'}
               ${g.developers?.length ? ' &middot; ' + esc(g.developers[0]) : ''}
               &middot; ${statusBadge(g.status)}
+              ${g.completed_fully ? ' <span class="status-badge" style="background:#1a2a3a;color:#5b8dee">100%</span>' : ''}
               ${g.date_completed ? ' &middot; ' + g.date_completed.slice(0,10) : ''}
             </div>
           </div>

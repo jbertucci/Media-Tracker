@@ -378,10 +378,11 @@ def games_add():
     igdb_id = data.get('igdb_id')
     if not igdb_id:
         return jsonify({'error': 'igdb_id is required'}), 400
-    status         = data.get('status', 'completed')
-    date_completed = data.get('date_completed')
+    status           = data.get('status', 'completed')
+    date_completed   = data.get('date_completed')
+    completed_fully  = bool(data.get('completed_fully', False))
     try:
-        game_id = fetch_and_store_game(igdb_id, DB_PATH, status=status, date_completed=date_completed)
+        game_id = fetch_and_store_game(igdb_id, DB_PATH, status=status, date_completed=date_completed, completed_fully=completed_fully)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     threading.Thread(
@@ -402,13 +403,13 @@ def games_list():
     cur = conn.cursor()
     if status_filter:
         rows = cur.execute(
-            'SELECT id, name, first_release_date, status, date_completed, cover_image_id '
+            'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
             'FROM games WHERE status=? ORDER BY datetime_added DESC',
             (status_filter,)
         ).fetchall()
     else:
         rows = cur.execute(
-            'SELECT id, name, first_release_date, status, date_completed, cover_image_id '
+            'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
             'FROM games ORDER BY datetime_added DESC'
         ).fetchall()
     result = []
@@ -420,10 +421,11 @@ def games_list():
             'id':             r['id'],
             'name':           r['name'],
             'year':           r['first_release_date'][:4] if r['first_release_date'] else None,
-            'status':         r['status'],
-            'date_completed': r['date_completed'],
-            'cover_image_id': r['cover_image_id'],
-            'developers':     devs,
+            'status':           r['status'],
+            'date_completed':   r['date_completed'],
+            'cover_image_id':   r['cover_image_id'],
+            'completed_fully':  bool(r['completed_fully']),
+            'developers':       devs,
         })
     conn.close()
     return jsonify(result)

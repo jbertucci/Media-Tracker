@@ -64,7 +64,8 @@ def setup_games_db(db_path='tmdb_analytics.db'):
             cover_image_id     TEXT,
             lead_writer        TEXT,
             composer           TEXT,
-            rating             REAL
+            rating             REAL,
+            completed_fully    INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS game_genres (
             id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,6 +88,10 @@ def setup_games_db(db_path='tmdb_analytics.db'):
             name    TEXT
         );
     ''')
+    try:
+        conn.execute('ALTER TABLE games ADD COLUMN completed_fully INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
     print('Games DB ready.')
@@ -109,7 +114,7 @@ def search_game(title):
     return results
 
 
-def fetch_and_store_game(igdb_id, db_path='tmdb_analytics.db', status='completed', date_completed=None):
+def fetch_and_store_game(igdb_id, db_path='tmdb_analytics.db', status='completed', date_completed=None, completed_fully=False):
     """Fetch full game details from IGDB and store in the DB."""
     resp = requests.post(
         'https://api.igdb.com/v4/games',
@@ -142,12 +147,12 @@ def fetch_and_store_game(igdb_id, db_path='tmdb_analytics.db', status='completed
     cur.execute('INSERT OR IGNORE INTO games (id, datetime_added) VALUES (?, ?)', (igdb_id, now))
     cur.execute('''
         UPDATE games SET name=?, first_release_date=?, status=?, date_completed=?,
-                         summary=?, cover_image_id=?, rating=?
+                         summary=?, cover_image_id=?, rating=?, completed_fully=?
         WHERE id=?
     ''', (
         data.get('name'), release_date, status, completed_ts,
         data.get('summary'), data.get('cover', {}).get('image_id'),
-        data.get('rating'), igdb_id,
+        data.get('rating'), 1 if completed_fully else 0, igdb_id,
     ))
 
     cur.execute('DELETE FROM game_genres WHERE game_id=?', (igdb_id,))
