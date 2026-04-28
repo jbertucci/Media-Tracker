@@ -333,29 +333,32 @@
 </header>
 
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('search')">Search</div>
-  <div class="tab" onclick="switchTab('movies')">My Movies</div>
-  <div class="tab" onclick="switchTab('stats')">Stats</div>
+  <div class="tab active" onclick="switchTab('movies')">Movies</div>
   <div class="tab" onclick="switchTab('games')">Games</div>
 </div>
 
 <main>
-  <div id="search-view" class="view active">
-    <div class="search-row">
-      <input type="text" id="search-input" placeholder="Movie title..."
-             onkeydown="if(event.key==='Enter') doSearch()">
-      <button id="search-btn" onclick="doSearch()">Search</button>
+  <div id="movies-view" class="view active">
+    <div class="game-subnav">
+      <button id="msub-search" class="active" onclick="setMovieSubview('search')">Search</button>
+      <button id="msub-list" onclick="setMovieSubview('list')">My Movies</button>
+      <button id="msub-stats" onclick="setMovieSubview('stats')">Stats</button>
     </div>
-    <div id="search-results"></div>
-  </div>
-
-  <div id="movies-view" class="view">
-    <button class="battle-btn" onclick="openBattle()">&#9876; Movie Battles</button>
-    <div id="movies-list"><div class="loading">Loading&hellip;</div></div>
-  </div>
-
-  <div id="stats-view" class="view">
-    <div id="stats-content"><div class="loading">Loading&hellip;</div></div>
+    <div id="movie-search-pane">
+      <div class="search-row">
+        <input type="text" id="search-input" placeholder="Movie title..."
+               onkeydown="if(event.key==='Enter') doSearch()">
+        <button id="search-btn" onclick="doSearch()">Search</button>
+      </div>
+      <div id="search-results"></div>
+    </div>
+    <div id="movie-list-pane" style="display:none">
+      <button class="battle-btn" onclick="openBattle()">&#9876; Movie Battles</button>
+      <div id="movies-list"><div class="loading">Loading&hellip;</div></div>
+    </div>
+    <div id="movie-stats-pane" style="display:none">
+      <div id="stats-content"><div class="loading">Loading&hellip;</div></div>
+    </div>
   </div>
 
   <div id="games-view" class="view">
@@ -453,14 +456,21 @@
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   function switchTab(tab) {
-    const tabs = ['search', 'movies', 'stats', 'games'];
+    const tabs = ['movies', 'games'];
     document.querySelectorAll('.tab').forEach((t, i) => {
       t.classList.toggle('active', tabs[i] === tab);
     });
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById(`${tab}-view`).classList.add('active');
-    if (tab === 'movies') loadMovies();
-    if (tab === 'stats') loadStats();
+  }
+
+  function setMovieSubview(view) {
+    ['search', 'list', 'stats'].forEach(v => {
+      document.getElementById(`movie-${v}-pane`).style.display = v === view ? 'block' : 'none';
+      document.getElementById(`msub-${v}`).classList.toggle('active', v === view);
+    });
+    if (view === 'list') loadMovies();
+    if (view === 'stats') loadStats();
   }
 
   // ── API key modal ─────────────────────────────────────────────────────────
