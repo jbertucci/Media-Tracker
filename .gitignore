@@ -1,6 +1,8 @@
 tmdbtoken.txt
 tmdbkey.txt
 flask_api_key.txt
+igdb_credentials.txt
+igdb_token_cache.json
 tmdb_analytics.db
 __pycache__/
 *.pyc

@@ -291,6 +291,35 @@
     .battle-btn { width:100%; background:var(--surface); color:var(--text); border:1px solid var(--border); margin-bottom:12px; }
     .battle-btn:active { background:var(--surface2); }
 
+    /* ── Games ── */
+    .game-subnav { display:flex; gap:6px; margin-bottom:12px; }
+    .game-subnav button { flex:1; background:var(--surface); color:var(--muted); border:1px solid var(--border); font-size:0.85rem; padding:8px; }
+    .game-subnav button.active { color:var(--text); border-color:var(--accent); }
+    .status-pills { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+    .status-pill { background:var(--surface); color:var(--muted); border:1px solid var(--border); border-radius:20px; padding:5px 12px; font-size:0.78rem; cursor:pointer; }
+    .status-pill.active { color:var(--text); border-color:var(--accent); }
+    .status-badge { display:inline-block; font-size:0.7rem; font-weight:600; padding:2px 7px; border-radius:10px; }
+    .badge-completed  { background:#1b3a1f; color:#4caf50; }
+    .badge-playing    { background:#1a2a4a; color:#5b8dee; }
+    .badge-want_to_play { background:#3a2a0a; color:#ff9800; }
+    .badge-dropped    { background:#2a1a1a; color:#888; }
+    .game-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:10px; overflow:hidden; }
+    .game-card-body { padding:12px; display:flex; gap:10px; align-items:flex-start; }
+    .game-cover-lg { width:54px; height:72px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
+    .game-cover-sm { width:40px; height:53px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
+    .game-card-info { flex:1; min-width:0; }
+    .game-card-title { font-weight:600; font-size:0.95rem; }
+    .game-card-meta { color:var(--muted); font-size:0.78rem; margin-top:2px; }
+    .game-card-overview { font-size:0.78rem; color:var(--muted); margin-top:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .game-card-actions { padding:8px 12px; background:var(--surface2); display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .game-card-actions select { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); padding:6px 8px; font-size:0.85rem; flex:1; outline:none; }
+    .game-card-actions input[type="date"] { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); padding:6px 8px; font-size:0.85rem; flex:1; outline:none; color-scheme:dark; }
+    .game-card-actions button { padding:6px 14px; font-size:0.85rem; }
+    .game-item { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; margin-bottom:8px; display:flex; align-items:center; gap:10px; }
+    .game-item .gi-info { flex:1; min-width:0; }
+    .game-item .gi-title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .game-item .gi-meta { color:var(--muted); font-size:0.78rem; margin-top:3px; }
+
     .poster-sm { width: 40px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--surface2); }
     .poster-xs { width: 33px; height: 50px; object-fit: cover; border-radius: 3px; flex-shrink: 0; background: var(--surface2); }
     .card-poster { width: 54px; height: 81px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--surface2); }
@@ -307,6 +336,7 @@
   <div class="tab active" onclick="switchTab('search')">Search</div>
   <div class="tab" onclick="switchTab('movies')">My Movies</div>
   <div class="tab" onclick="switchTab('stats')">Stats</div>
+  <div class="tab" onclick="switchTab('games')">Games</div>
 </div>
 
 <main>
@@ -326,6 +356,31 @@
 
   <div id="stats-view" class="view">
     <div id="stats-content"><div class="loading">Loading&hellip;</div></div>
+  </div>
+
+  <div id="games-view" class="view">
+    <div class="game-subnav">
+      <button id="gsub-search" class="active" onclick="setGameSubview('search')">Search</button>
+      <button id="gsub-list" onclick="setGameSubview('list')">My Games</button>
+    </div>
+    <div id="game-search-pane">
+      <div class="search-row">
+        <input type="text" id="game-search-input" placeholder="Game title..."
+               onkeydown="if(event.key==='Enter') doGameSearch()">
+        <button id="game-search-btn" onclick="doGameSearch()">Search</button>
+      </div>
+      <div id="game-search-results"></div>
+    </div>
+    <div id="game-list-pane" style="display:none">
+      <div class="status-pills">
+        <div class="status-pill active" data-status="" onclick="setGameFilter(this)">All</div>
+        <div class="status-pill" data-status="playing" onclick="setGameFilter(this)">Playing</div>
+        <div class="status-pill" data-status="completed" onclick="setGameFilter(this)">Completed</div>
+        <div class="status-pill" data-status="want_to_play" onclick="setGameFilter(this)">Want to Play</div>
+        <div class="status-pill" data-status="dropped" onclick="setGameFilter(this)">Dropped</div>
+      </div>
+      <div id="game-list"></div>
+    </div>
   </div>
 </main>
 
@@ -398,7 +453,7 @@
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   function switchTab(tab) {
-    const tabs = ['search', 'movies', 'stats'];
+    const tabs = ['search', 'movies', 'stats', 'games'];
     document.querySelectorAll('.tab').forEach((t, i) => {
       t.classList.toggle('active', tabs[i] === tab);
     });
@@ -627,6 +682,159 @@
         return `<div ${click}><span class="legend-dot" style="background:${color}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
       }).join('')}</div>
     </div>`;
+  }
+
+  // ── Games ─────────────────────────────────────────────────────────────────
+
+  const IGDB_IMG = 'https://images.igdb.com/igdb/image/upload/';
+  function igdbCoverUrl(imageId, size = 'cover_big') {
+    return imageId ? `${IGDB_IMG}t_${size}/${imageId}.jpg` : null;
+  }
+  function igdbCoverImg(imageId, cls, size = 'cover_big') {
+    const url = igdbCoverUrl(imageId, size);
+    return url ? `<img class="${cls}" src="${url}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
+  }
+
+  const STATUS_LABELS = { completed: 'Completed', playing: 'Playing', want_to_play: 'Want to Play', dropped: 'Dropped' };
+
+  function statusBadge(status) {
+    return `<span class="status-badge badge-${status}">${STATUS_LABELS[status] || status}</span>`;
+  }
+
+  function setGameSubview(view) {
+    document.getElementById('game-search-pane').style.display = view === 'search' ? 'block' : 'none';
+    document.getElementById('game-list-pane').style.display   = view === 'list'   ? 'block' : 'none';
+    document.getElementById('gsub-search').classList.toggle('active', view === 'search');
+    document.getElementById('gsub-list').classList.toggle('active', view === 'list');
+    if (view === 'list') loadGameList('');
+  }
+
+  let currentGameFilter = '';
+
+  function setGameFilter(pill) {
+    document.querySelectorAll('.status-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentGameFilter = pill.dataset.status;
+    loadGameList(currentGameFilter);
+  }
+
+  async function doGameSearch() {
+    const title = document.getElementById('game-search-input').value.trim();
+    if (!title) return;
+    const btn = document.getElementById('game-search-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    document.getElementById('game-search-results').innerHTML = '';
+    try {
+      const results = await apiFetch(`/games/search?title=${encodeURIComponent(title)}`);
+      if (!results.length) {
+        document.getElementById('game-search-results').innerHTML = '<div class="empty">No results found.</div>';
+        return;
+      }
+      document.getElementById('game-search-results').innerHTML = results.map(r => `
+        <div class="game-card">
+          <div class="game-card-body">
+            ${igdbCoverImg(r.cover_image_id, 'game-cover-lg')}
+            <div class="game-card-info">
+              <div class="game-card-title">${esc(r.name)}</div>
+              <div class="game-card-meta">${r.year || 'Unknown year'}</div>
+              ${r.summary ? `<div class="game-card-overview">${esc(r.summary)}</div>` : ''}
+            </div>
+          </div>
+          <div class="game-card-actions">
+            <select id="gstatus-${r.id}" onchange="toggleGameDate(${r.id})">
+              <option value="completed">Completed</option>
+              <option value="playing">Playing</option>
+              <option value="want_to_play">Want to Play</option>
+              <option value="dropped">Dropped</option>
+            </select>
+            <input type="date" id="gdate-${r.id}" value="${today()}" style="display:none">
+            <button data-id="${r.id}" data-name="${esc(r.name)}" onclick="addGameBtn(this)">Add</button>
+          </div>
+        </div>`).join('');
+      // Show date field for completed by default
+      results.forEach(r => toggleGameDate(r.id));
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Search';
+    }
+  }
+
+  function toggleGameDate(id) {
+    const status = document.getElementById(`gstatus-${id}`)?.value;
+    const dateEl = document.getElementById(`gdate-${id}`);
+    if (dateEl) dateEl.style.display = ['completed', 'dropped'].includes(status) ? 'block' : 'none';
+  }
+
+  async function addGameBtn(btn) {
+    const id   = parseInt(btn.dataset.id);
+    const name = btn.dataset.name;
+    const status = document.getElementById(`gstatus-${id}`).value;
+    const dateEl = document.getElementById(`gdate-${id}`);
+    const date_completed = dateEl?.style.display !== 'none' ? dateEl.value : null;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      await apiFetch('/games/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ igdb_id: id, status, date_completed: date_completed || null }),
+      });
+      btn.textContent = '✓ Added';
+      btn.classList.add('btn-added');
+      toast(`Added: ${name}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Add';
+    }
+  }
+
+  async function loadGameList(status = '') {
+    const el = document.getElementById('game-list');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      const games = await apiFetch(`/games${status ? '?status=' + status : ''}`);
+      if (!games.length) {
+        el.innerHTML = '<div class="empty">No games yet.</div>';
+        return;
+      }
+      el.innerHTML = games.map(g => `
+        <div class="game-item" id="gi-${g.id}">
+          ${igdbCoverImg(g.cover_image_id, 'game-cover-sm', 'cover_small')}
+          <div class="gi-info">
+            <div class="gi-title">${esc(g.name)}</div>
+            <div class="gi-meta">
+              ${g.year || '—'}
+              ${g.developers?.length ? ' &middot; ' + esc(g.developers[0]) : ''}
+              &middot; ${statusBadge(g.status)}
+              ${g.date_completed ? ' &middot; ' + g.date_completed.slice(0,10) : ''}
+            </div>
+          </div>
+          <button class="btn-icon" data-id="${g.id}" data-name="${esc(g.name)}"
+                  onclick="removeGameBtn(this)" title="Remove">&times;</button>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function removeGameBtn(btn) {
+    removeGame(btn.dataset.id, btn.dataset.name);
+  }
+
+  async function removeGame(id, name) {
+    if (!confirm(`Remove "${name}"?`)) return;
+    try {
+      await apiFetch(`/games/${id}`, { method: 'DELETE' });
+      document.getElementById(`gi-${id}`)?.remove();
+      toast(`Removed: ${name}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
   }
 
   // ── Battle ────────────────────────────────────────────────────────────────

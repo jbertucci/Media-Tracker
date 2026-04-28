@@ -12,6 +12,12 @@ from tmdb_helpers import (
     fetch_wikidata_enrichment,
     search_movie,
 )
+from game_helpers import (
+    fetch_and_store_game,
+    fetch_wikidata_game_enrichment,
+    search_game,
+    setup_games_db,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'tmdb_analytics.db')
@@ -54,6 +60,7 @@ def _ensure_battle_table():
     conn.close()
 
 _ensure_battle_table()
+setup_games_db(DB_PATH)
 
 
 def _auth():
@@ -335,6 +342,110 @@ def stats():
         'cast_gender': [dict(r) for r in cast_gender],
         'cast_ethnicity': [dict(r) for r in cast_ethnicity],
     })
+
+
+# ── Game routes ───────────────────────────────────────────────────────────────
+
+@app.route('/games/search')
+def games_search():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    title = request.args.get('title', '').strip()
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    try:
+        results = search_game(title)
+        return jsonify([
+            {
+                'id':                 r['id'],
+                'name':               r['name'],
+                'year':               datetime.fromtimestamp(r['first_release_date'], tz=timezone.utc).strftime('%Y')
+                                      if 'first_release_date' in r else None,
+                'cover_image_id':     r.get('cover', {}).get('image_id'),
+                'summary':            r.get('summary', ''),
+            }
+            for r in results
+        ])
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+
+
+@app.route('/games/add', methods=['POST'])
+def games_add():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) or {}
+    igdb_id = data.get('igdb_id')
+    if not igdb_id:
+        return jsonify({'error': 'igdb_id is required'}), 400
+    status         = data.get('status', 'completed')
+    date_completed = data.get('date_completed')
+    try:
+        game_id = fetch_and_store_game(igdb_id, DB_PATH, status=status, date_completed=date_completed)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    threading.Thread(
+        target=fetch_wikidata_game_enrichment,
+        args=(game_id, DB_PATH),
+        daemon=True,
+    ).start()
+    return jsonify({'ok': True, 'game_id': game_id})
+
+
+@app.route('/games')
+def games_list():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    status_filter = request.args.get('status', '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    if status_filter:
+        rows = cur.execute(
+            'SELECT id, name, first_release_date, status, date_completed, cover_image_id '
+            'FROM games WHERE status=? ORDER BY datetime_added DESC',
+            (status_filter,)
+        ).fetchall()
+    else:
+        rows = cur.execute(
+            'SELECT id, name, first_release_date, status, date_completed, cover_image_id '
+            'FROM games ORDER BY datetime_added DESC'
+        ).fetchall()
+    result = []
+    for r in rows:
+        devs = [x['name'] for x in cur.execute(
+            'SELECT name FROM game_developers WHERE game_id=?', (r['id'],)
+        ).fetchall()]
+        result.append({
+            'id':             r['id'],
+            'name':           r['name'],
+            'year':           r['first_release_date'][:4] if r['first_release_date'] else None,
+            'status':         r['status'],
+            'date_completed': r['date_completed'],
+            'cover_image_id': r['cover_image_id'],
+            'developers':     devs,
+        })
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/games/<int:game_id>', methods=['DELETE'])
+def games_remove(game_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    row = cur.execute('SELECT name FROM games WHERE id=?', (game_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Game not found'}), 404
+    name = row[0]
+    for table in ('game_genres', 'game_developers', 'game_publishers', 'game_perspectives'):
+        cur.execute(f'DELETE FROM {table} WHERE game_id=?', (game_id,))
+    cur.execute('DELETE FROM games WHERE id=?', (game_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'removed': name})
 
 
 # ── Battle helpers ────────────────────────────────────────────────────────────
