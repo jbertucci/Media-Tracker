@@ -662,13 +662,13 @@
     }));
   }
 
-  function barsHTML(title, items, color, drillType) {
+  function barsHTML(title, items, color, drillType, clickFn = 'drillRow') {
     if (!items?.length) return '';
     const max = Math.max(...items.map(i => i.count));
     return `<div class="stat-section"><h3>${esc(title)}</h3>${items.map(item => {
       const name  = item.name || item.label;
       const pct   = (item.count / max * 100).toFixed(1);
-      const click = drillType ? `class="bar-row clickable" data-drill-type="${drillType}" data-drill-val="${esc(name)}" onclick="drillRow(this)"` : `class="bar-row"`;
+      const click = drillType ? `class="bar-row clickable" data-drill-type="${drillType}" data-drill-val="${esc(name)}" onclick="${clickFn}(this)"` : `class="bar-row"`;
       return `<div ${click}>
         <div class="bar-label" title="${esc(name)}">${esc(name)}</div>
         <div class="bar-track">
@@ -678,7 +678,7 @@
     }).join('')}</div>`;
   }
 
-  function splitBarHTML(title, items, drillType) {
+  function splitBarHTML(title, items, drillType, clickFn = 'drillRow') {
     if (!items?.length) return '';
     const total = items.reduce((s, i) => s + i.count, 0);
     if (!total) return '';
@@ -692,7 +692,7 @@
       <div class="split-legend">${items.map(i => {
         const pct   = (i.count / total * 100).toFixed(0);
         const color = colors[i.label] || '#888';
-        const click = drillType ? `class="legend-item clickable" data-drill-type="${drillType}" data-drill-val="${esc(i.label)}" onclick="drillRow(this)"` : `class="legend-item"`;
+        const click = drillType ? `class="legend-item clickable" data-drill-type="${drillType}" data-drill-val="${esc(i.label)}" onclick="${clickFn}(this)"` : `class="legend-item"`;
         return `<div ${click}><span class="legend-dot" style="background:${color}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
       }).join('')}</div>
     </div>`;
@@ -746,11 +746,11 @@
         <div class="stat-card"><div class="stat-num">${s.summary.completion_rate}%</div><div class="stat-label">100%'d</div></div>
       </div>
 
-      ${barsHTML('Top Developers', s.top_developers, '#e50914')}
-      ${barsHTML('Top Publishers', s.top_publishers, '#5b8dee')}
-      ${barsHTML('Genres',         s.top_genres,     '#4caf50')}
-      ${s.perspectives.length ? barsHTML('Camera Perspective', s.perspectives, '#7c5cbf') : ''}
-      ${barsHTML('Completions by Year', s.by_year, '#ff9800')}
+      ${barsHTML('Top Developers',     s.top_developers, '#e50914', 'developer',  'gameDrillRow')}
+      ${barsHTML('Top Publishers',     s.top_publishers, '#5b8dee', 'publisher',  'gameDrillRow')}
+      ${barsHTML('Genres',             s.top_genres,     '#4caf50', 'genre',      'gameDrillRow')}
+      ${s.perspectives.length ? barsHTML('Camera Perspective', s.perspectives, '#7c5cbf', 'perspective', 'gameDrillRow') : ''}
+      ${barsHTML('Completions by Year', s.by_year,       '#ff9800', 'year',       'gameDrillRow')}
 
       ${s.status_breakdown.length > 1 ? `
       <div class="stat-section"><h3>Library Breakdown</h3>
@@ -759,15 +759,19 @@
             const total = s.status_breakdown.reduce((a, b) => a + b.count, 0);
             const pct   = (i.count / total * 100).toFixed(1);
             const color = statusColors[i.label] || '#888';
+            const apiVal = i.label.toLowerCase().replace(/ /g, '_');
             return `<div class="split-seg" style="width:0; background:${color}" data-w="${pct}%" title="${esc(i.label)}: ${pct}%"></div>`;
           }).join('')}
         </div>
         <div class="split-legend">
           ${s.status_breakdown.map(i => {
-            const total = s.status_breakdown.reduce((a, b) => a + b.count, 0);
-            const pct   = (i.count / total * 100).toFixed(0);
-            const color = statusColors[i.label] || '#888';
-            return `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
+            const total  = s.status_breakdown.reduce((a, b) => a + b.count, 0);
+            const pct    = (i.count / total * 100).toFixed(0);
+            const color  = statusColors[i.label] || '#888';
+            const apiVal = i.label.toLowerCase().replace(/ /g, '_');
+            return `<div class="legend-item clickable" data-drill-type="status" data-drill-val="${apiVal}" onclick="gameDrillRow(this)">
+              <span class="legend-dot" style="background:${color}"></span><span>${esc(i.label)} ${pct}%</span>
+            </div>`;
           }).join('')}
         </div>
       </div>` : ''}
@@ -1031,6 +1035,41 @@
     document.getElementById('bo-title').textContent = 'Movie Battles';
     document.getElementById('bo-right-btn').textContent = 'Rankings';
     document.getElementById('bo-right-btn').onclick = showBattleRankings;
+  }
+
+  // ── Game drill-down ───────────────────────────────────────────────────────
+
+  function gameDrillRow(el) {
+    gameDrillDown(el.dataset.drillType, el.dataset.drillVal);
+  }
+
+  async function gameDrillDown(type, value) {
+    document.getElementById('drill-title').textContent = value;
+    document.getElementById('drill-list').innerHTML = '<div class="loading">Loading&hellip;</div>';
+    document.getElementById('drill-modal').style.display = 'flex';
+    try {
+      const games = await apiFetch(`/games/stats/titles?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`);
+      if (!games.length) {
+        document.getElementById('drill-list').innerHTML = '<div class="empty">No games found.</div>';
+        return;
+      }
+      document.getElementById('drill-list').innerHTML = games.map((g, i) => `
+        <div class="drill-item">
+          <span class="drill-num">${i + 1}</span>
+          ${igdbCoverImg(g.cover_image_id, 'poster-xs', 'cover_small')}
+          <div class="drill-info">
+            <div class="drill-title">${esc(g.name)}</div>
+            <div class="drill-meta">
+              ${g.year || '—'} &middot; ${statusBadge(g.status)}
+              ${g.completed_fully ? ' <span class="status-badge" style="background:#1a2a3a;color:#5b8dee">100%</span>' : ''}
+              ${g.date_completed ? ' &middot; ' + g.date_completed.slice(0,10) : ''}
+            </div>
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      document.getElementById('drill-modal').style.display = 'none';
+    }
   }
 
   // ── Drill-down ────────────────────────────────────────────────────────────

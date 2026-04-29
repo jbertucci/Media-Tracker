@@ -503,6 +503,55 @@ def games_stats():
     })
 
 
+@app.route('/games/stats/titles')
+def games_stats_titles():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    filter_type = request.args.get('type', '').strip()
+    value       = request.args.get('value', '').strip()
+    if not filter_type or not value:
+        return jsonify({'error': 'type and value are required'}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    base = 'SELECT DISTINCT g.name, g.first_release_date, g.cover_image_id, g.status, g.date_completed, g.completed_fully FROM games g'
+    order = 'ORDER BY g.date_completed DESC'
+
+    if filter_type == 'developer':
+        rows = cur.execute(f'{base} JOIN game_developers d ON g.id=d.game_id WHERE d.name=? {order}', (value,)).fetchall()
+    elif filter_type == 'publisher':
+        rows = cur.execute(f'{base} JOIN game_publishers p ON g.id=p.game_id WHERE p.name=? {order}', (value,)).fetchall()
+    elif filter_type == 'genre':
+        rows = cur.execute(f'{base} JOIN game_genres gg ON g.id=gg.game_id WHERE gg.name=? {order}', (value,)).fetchall()
+    elif filter_type == 'perspective':
+        rows = cur.execute(f'{base} JOIN game_perspectives p ON g.id=p.game_id WHERE p.name=? {order}', (value,)).fetchall()
+    elif filter_type == 'year':
+        rows = cur.execute(
+            'SELECT name, first_release_date, cover_image_id, status, date_completed, completed_fully '
+            'FROM games WHERE SUBSTR(date_completed,1,4)=? ORDER BY date_completed DESC', (value,)
+        ).fetchall()
+    elif filter_type == 'status':
+        rows = cur.execute(
+            'SELECT name, first_release_date, cover_image_id, status, date_completed, completed_fully '
+            'FROM games WHERE status=? ORDER BY date_completed DESC', (value,)
+        ).fetchall()
+    else:
+        conn.close()
+        return jsonify({'error': f'Unknown type: {filter_type}'}), 400
+
+    conn.close()
+    return jsonify([{
+        'name':           r['name'],
+        'year':           r['first_release_date'][:4] if r['first_release_date'] else None,
+        'cover_image_id': r['cover_image_id'],
+        'status':         r['status'],
+        'date_completed': r['date_completed'],
+        'completed_fully': bool(r['completed_fully']),
+    } for r in rows])
+
+
 @app.route('/games/<int:game_id>', methods=['DELETE'])
 def games_remove(game_id):
     if not _auth():
