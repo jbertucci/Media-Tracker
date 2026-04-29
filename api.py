@@ -63,6 +63,21 @@ _ensure_battle_table()
 setup_games_db(DB_PATH)
 
 
+def _ensure_game_battle_table():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS game_battle_state (
+            id            INTEGER PRIMARY KEY DEFAULT 1,
+            challenger_id INTEGER,
+            opponent_id   INTEGER
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+_ensure_game_battle_table()
+
+
 def _auth():
     key = request.headers.get('X-API-Key') or request.args.get('api_key')
     return key == API_KEY
@@ -404,13 +419,13 @@ def games_list():
     if status_filter:
         rows = cur.execute(
             'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
-            'FROM games WHERE status=? ORDER BY date_completed DESC, datetime_added DESC',
+            'FROM games WHERE status=? ORDER BY CASE WHEN status="playing" THEN 0 ELSE 1 END, date_completed DESC, datetime_added DESC',
             (status_filter,)
         ).fetchall()
     else:
         rows = cur.execute(
             'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
-            'FROM games ORDER BY date_completed DESC, datetime_added DESC'
+            'FROM games ORDER BY CASE WHEN status="playing" THEN 0 ELSE 1 END, date_completed DESC, datetime_added DESC'
         ).fetchall()
     result = []
     for r in rows:
@@ -803,6 +818,192 @@ def battle_rankings():
         'poster_path': r['poster_path'],
         'rank':        r['rank'],
         'date_ranked': r['date_ranked'],
+    } for r in rows])
+
+
+# ── Game battle helpers ────────────────────────────────────────────────────────
+
+def _expire_game_rankings(cur):
+    one_year_ago = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    cur.execute(
+        'UPDATE games SET rank = NULL, date_ranked = NULL '
+        'WHERE date_ranked IS NOT NULL AND date_ranked < ?',
+        (one_year_ago,)
+    )
+
+
+def _game_card(cur, game_id):
+    game = cur.execute(
+        'SELECT id, name, first_release_date, cover_image_id, rank, lead_writer, composer FROM games WHERE id=?',
+        (game_id,)
+    ).fetchone()
+    devs = cur.execute(
+        'SELECT name FROM game_developers WHERE game_id=? LIMIT 2', (game_id,)
+    ).fetchall()
+    return {
+        'id':             game['id'],
+        'title':          game['name'],
+        'year':           game['first_release_date'][:4] if game['first_release_date'] else None,
+        'cover_image_id': game['cover_image_id'],
+        'rank':           game['rank'],
+        'developer':      ', '.join(r['name'] for r in devs) if devs else None,
+        'lead_writer':    game['lead_writer'],
+        'composer':       game['composer'],
+    }
+
+
+# ── Game battle routes ─────────────────────────────────────────────────────────
+
+@app.route('/game_battle/next')
+def game_battle_next():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    _expire_game_rankings(cur)
+    conn.commit()
+
+    total = cur.execute('SELECT COUNT(*) as n FROM games').fetchone()['n']
+    if total < 2:
+        conn.close()
+        return jsonify({'error': 'Need at least 2 games to battle'}), 400
+
+    state = cur.execute(
+        'SELECT challenger_id, opponent_id FROM game_battle_state WHERE id = 1'
+    ).fetchone()
+
+    if state and state['challenger_id'] and state['opponent_id']:
+        challenger_id = state['challenger_id']
+        opponent_id   = state['opponent_id']
+    else:
+        unranked = [r['id'] for r in cur.execute('SELECT id FROM games WHERE rank IS NULL').fetchall()]
+        ranked   = cur.execute('SELECT id, rank FROM games WHERE rank IS NOT NULL ORDER BY rank DESC').fetchall()
+
+        if len(unranked) >= 2 and not ranked:
+            challenger_id, opponent_id = random.sample(unranked, 2)
+        elif unranked:
+            challenger_id = random.choice(unranked)
+            opponent_id   = ranked[0]['id']
+        elif len(ranked) >= 2:
+            bottom_id     = ranked[0]['id']
+            challenger_id = random.choice([r['id'] for r in ranked if r['id'] != bottom_id])
+            cur.execute('UPDATE games SET rank = NULL, date_ranked = NULL WHERE id = ?', (challenger_id,))
+            conn.commit()
+            ranked    = cur.execute('SELECT id, rank FROM games WHERE rank IS NOT NULL ORDER BY rank DESC').fetchall()
+            opponent_id = ranked[0]['id']
+        else:
+            conn.close()
+            return jsonify({'error': 'Not enough games to battle'}), 400
+
+        cur.execute(
+            'INSERT OR REPLACE INTO game_battle_state (id, challenger_id, opponent_id) VALUES (1,?,?)',
+            (challenger_id, opponent_id)
+        )
+        conn.commit()
+
+    ranked_count = cur.execute('SELECT COUNT(*) as n FROM games WHERE rank IS NOT NULL').fetchone()['n']
+    result = jsonify({
+        'challenger':   _game_card(cur, challenger_id),
+        'opponent':     _game_card(cur, opponent_id),
+        'ranked_count': ranked_count,
+        'total_films':  total,
+    })
+    conn.close()
+    return result
+
+
+@app.route('/game_battle/result', methods=['POST'])
+def game_battle_result():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data      = request.get_json(silent=True) or {}
+    winner_id = data.get('winner_id')
+    if not winner_id:
+        return jsonify({'error': 'winner_id required'}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur  = conn.cursor()
+    now  = datetime.now(timezone.utc).isoformat()
+
+    state = cur.execute('SELECT challenger_id, opponent_id FROM game_battle_state WHERE id = 1').fetchone()
+    if not state:
+        conn.close()
+        return jsonify({'error': 'No active battle'}), 400
+
+    challenger_id = state['challenger_id']
+    opponent_id   = state['opponent_id']
+    opponent_rank = cur.execute('SELECT rank FROM games WHERE id=?', (opponent_id,)).fetchone()['rank']
+
+    def place_challenger(rank):
+        cur.execute('UPDATE games SET rank = rank + 1 WHERE rank >= ?', (rank,))
+        cur.execute('UPDATE games SET rank=?, date_ranked=? WHERE id=?', (rank, now, challenger_id))
+        cur.execute('DELETE FROM game_battle_state WHERE id=1')
+        conn.commit()
+        conn.close()
+
+    if winner_id == challenger_id:
+        if opponent_rank is None:
+            cur.execute('UPDATE games SET rank=1, date_ranked=? WHERE id=?', (now, challenger_id))
+            cur.execute('UPDATE games SET rank=2, date_ranked=? WHERE id=?', (now, opponent_id))
+            cur.execute('DELETE FROM game_battle_state WHERE id=1')
+            conn.commit()
+            conn.close()
+            return jsonify({'status': 'placed', 'new_rank': 1})
+
+        next_rank = opponent_rank - 1
+        if next_rank < 1:
+            cur.execute('UPDATE games SET rank = rank + 1 WHERE rank IS NOT NULL')
+            cur.execute('UPDATE games SET rank=1, date_ranked=? WHERE id=?', (now, challenger_id))
+            cur.execute('DELETE FROM game_battle_state WHERE id=1')
+            conn.commit()
+            conn.close()
+            return jsonify({'status': 'placed', 'new_rank': 1})
+
+        next_opponent = cur.execute('SELECT id FROM games WHERE rank=?', (next_rank,)).fetchone()
+        if not next_opponent:
+            place_challenger(next_rank + 1)
+            return jsonify({'status': 'placed', 'new_rank': next_rank + 1})
+
+        cur.execute('UPDATE game_battle_state SET opponent_id=? WHERE id=1', (next_opponent['id'],))
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'continue'})
+    else:
+        if opponent_rank is None:
+            cur.execute('UPDATE games SET rank=1, date_ranked=? WHERE id=?', (now, opponent_id))
+            cur.execute('UPDATE games SET rank=2, date_ranked=? WHERE id=?', (now, challenger_id))
+            cur.execute('DELETE FROM game_battle_state WHERE id=1')
+            conn.commit()
+            conn.close()
+            return jsonify({'status': 'placed', 'new_rank': 2})
+
+        place_challenger(opponent_rank + 1)
+        return jsonify({'status': 'placed', 'new_rank': opponent_rank + 1})
+
+
+@app.route('/game_battle/rankings')
+def game_battle_rankings():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur  = conn.cursor()
+    rows = cur.execute(
+        'SELECT id, name, first_release_date, cover_image_id, rank, date_ranked FROM games WHERE rank IS NOT NULL ORDER BY rank'
+    ).fetchall()
+    conn.close()
+    return jsonify([{
+        'id':             r['id'],
+        'title':          r['name'],
+        'year':           r['first_release_date'][:4] if r['first_release_date'] else None,
+        'cover_image_id': r['cover_image_id'],
+        'rank':           r['rank'],
+        'date_ranked':    r['date_ranked'],
     } for r in rows])
 
 

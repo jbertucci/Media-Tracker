@@ -379,6 +379,7 @@
       <div id="game-stats-content"><div class="loading">Loading&hellip;</div></div>
     </div>
     <div id="game-list-pane" style="display:none">
+      <button class="battle-btn" onclick="openBattle('games')">&#9876; Game Battles</button>
       <div class="status-pills">
         <div class="status-pill active" data-status="" onclick="setGameFilter(this)">All</div>
         <div class="status-pill" data-status="playing" onclick="setGameFilter(this)">Playing</div>
@@ -920,11 +921,14 @@
 
   // ── Battle ────────────────────────────────────────────────────────────────
 
-  function openBattle() {
+  let battleMode = 'movies';
+
+  function openBattle(mode = 'movies') {
+    battleMode = mode;
     document.getElementById('battle-overlay').style.display = 'flex';
     document.getElementById('bo-battle').style.display = 'flex';
     document.getElementById('bo-rankings').style.display = 'none';
-    document.getElementById('bo-title').textContent = 'Movie Battles';
+    document.getElementById('bo-title').textContent = mode === 'games' ? 'Game Battles' : 'Movie Battles';
     document.getElementById('bo-right-btn').textContent = 'Rankings';
     document.getElementById('bo-right-btn').onclick = showBattleRankings;
     loadBattle();
@@ -937,8 +941,8 @@
   async function loadBattle() {
     document.getElementById('bo-arena').innerHTML = '<div class="loading">Loading&hellip;</div>';
     try {
-      const data = await apiFetch('/battle/next');
-      renderBattleArena(data);
+      const endpoint = battleMode === 'games' ? '/game_battle/next' : '/battle/next';
+      renderBattleArena(await apiFetch(endpoint));
     } catch (e) {
       document.getElementById('bo-arena').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     }
@@ -954,18 +958,31 @@
   }
 
   function battleCardHTML(film) {
-    const url = posterUrl(film.poster_path, 'w185');
-    const poster = url
-      ? `<img class="battle-poster" src="${url}" alt="" loading="lazy">`
-      : `<div class="battle-poster"></div>`;
+    let poster;
+    if (battleMode === 'games') {
+      const url = igdbCoverUrl(film.cover_image_id, 'cover_big');
+      poster = url ? `<img class="battle-poster" src="${url}" alt="" loading="lazy">` : `<div class="battle-poster"></div>`;
+    } else {
+      const url = posterUrl(film.poster_path, 'w185');
+      poster = url ? `<img class="battle-poster" src="${url}" alt="" loading="lazy">` : `<div class="battle-poster"></div>`;
+    }
+    const facts = battleMode === 'games'
+      ? [
+          film.developer   ? `<div class="battle-fact"><b>Dev</b>${esc(film.developer)}</div>`   : '',
+          film.lead_writer ? `<div class="battle-fact"><b>Writer</b>${esc(film.lead_writer)}</div>` : '',
+          film.composer    ? `<div class="battle-fact"><b>Music</b>${esc(film.composer)}</div>`  : '',
+        ]
+      : [
+          film.director    ? `<div class="battle-fact"><b>Dir</b>${esc(film.director)}</div>`    : '',
+          film.cast?.length ? `<div class="battle-fact"><b>Cast</b>${film.cast.map(esc).join(', ')}</div>` : '',
+          film.composer    ? `<div class="battle-fact"><b>Music</b>${esc(film.composer)}</div>`  : '',
+        ];
     return `<div class="battle-card" data-id="${film.id}" onclick="chooseSide(this)">
       ${poster}
       <div class="battle-details">
         <div class="battle-title">${esc(film.title)}</div>
         <div class="battle-year">${film.year || '—'}</div>
-        ${film.director ? `<div class="battle-fact"><b>Dir</b>${esc(film.director)}</div>` : ''}
-        ${film.cast?.length ? `<div class="battle-fact"><b>Cast</b>${film.cast.map(esc).join(', ')}</div>` : ''}
-        ${film.composer ? `<div class="battle-fact"><b>Music</b>${esc(film.composer)}</div>` : ''}
+        ${facts.join('')}
       </div>
     </div>`;
   }
@@ -981,7 +998,8 @@
     await new Promise(r => setTimeout(r, 500));
 
     try {
-      const result = await apiFetch('/battle/result', {
+      const endpoint = battleMode === 'games' ? '/game_battle/result' : '/battle/result';
+      const result = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ winner_id: parseInt(card.dataset.id) }),
@@ -1009,21 +1027,27 @@
     const el = document.getElementById('bo-rankings-list');
     el.innerHTML = '<div class="loading">Loading&hellip;</div>';
     try {
-      const rankings = await apiFetch('/battle/rankings');
+      const endpoint = battleMode === 'games' ? '/game_battle/rankings' : '/battle/rankings';
+      const rankings = await apiFetch(endpoint);
       if (!rankings.length) {
         el.innerHTML = '<div class="empty">No rankings yet — start battling!</div>';
         return;
       }
-      el.innerHTML = `<div class="bo-section-label">Ranked Films</div>` +
-        rankings.map(r => `
-          <div class="rank-item">
+      const label = battleMode === 'games' ? 'Ranked Games' : 'Ranked Films';
+      el.innerHTML = `<div class="bo-section-label">${label}</div>` +
+        rankings.map(r => {
+          const img = battleMode === 'games'
+            ? igdbCoverImg(r.cover_image_id, 'poster-xs', 'cover_small')
+            : posterImg(r.poster_path, 'poster-xs');
+          return `<div class="rank-item">
             <span class="rank-num">#${r.rank}</span>
-            ${posterImg(r.poster_path, 'poster-xs')}
+            ${img}
             <div class="rank-info">
               <div class="rank-title">${esc(r.title)}</div>
               <div class="rank-meta">${r.year || '—'} &middot; Ranked ${r.date_ranked ? r.date_ranked.slice(0,10) : '?'}</div>
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
     } catch (e) {
       toast(e.message, 'error');
     }
@@ -1032,7 +1056,7 @@
   function showBattleArena() {
     document.getElementById('bo-rankings').style.display = 'none';
     document.getElementById('bo-battle').style.display = 'flex';
-    document.getElementById('bo-title').textContent = 'Movie Battles';
+    document.getElementById('bo-title').textContent = battleMode === 'games' ? 'Game Battles' : 'Movie Battles';
     document.getElementById('bo-right-btn').textContent = 'Rankings';
     document.getElementById('bo-right-btn').onclick = showBattleRankings;
   }

@@ -89,10 +89,15 @@ def setup_games_db(db_path='tmdb_analytics.db'):
             name    TEXT
         );
     ''')
-    try:
-        conn.execute('ALTER TABLE games ADD COLUMN completed_fully INTEGER DEFAULT 0')
-    except sqlite3.OperationalError:
-        pass
+    for col, col_type in [
+        ('completed_fully', 'INTEGER DEFAULT 0'),
+        ('rank',            'INTEGER'),
+        ('date_ranked',     'TEXT'),
+    ]:
+        try:
+            conn.execute(f'ALTER TABLE games ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     conn.close()
     print('Games DB ready.')
