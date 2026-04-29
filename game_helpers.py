@@ -99,7 +99,20 @@ def setup_games_db(db_path='tmdb_analytics.db'):
 
 
 def search_game(title):
-    """Search IGDB by title, return top 5 results."""
+    """Search IGDB by title, return top 5 results. If title is all digits, look up by IGDB ID."""
+    if title.isdigit():
+        resp = requests.post(
+            'https://api.igdb.com/v4/games',
+            headers=_igdb_headers(),
+            data=f'fields name, first_release_date, cover.image_id, genres.name, summary; where id = {title};',
+            timeout=15,
+        )
+        resp.raise_for_status()
+        results = resp.json()
+        if not results:
+            raise ValueError(f'No game found with IGDB id {title}')
+        return results
+
     escaped = title.replace('"', '\\"')
     resp = requests.post(
         'https://api.igdb.com/v4/games',

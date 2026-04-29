@@ -743,7 +743,7 @@
       <div class="stat-summary">
         <div class="stat-card"><div class="stat-num">${s.summary.total}</div><div class="stat-label">Games</div></div>
         <div class="stat-card"><div class="stat-num">${s.summary.completed}</div><div class="stat-label">Completed</div></div>
-        <div class="stat-card"><div class="stat-num">${s.summary.completion_rate}%</div><div class="stat-label">100%'d</div></div>
+        <div class="stat-card clickable" style="cursor:pointer" onclick="gameDrillDown('fully_completed','1')"><div class="stat-num">${s.summary.completion_rate}%</div><div class="stat-label">100%'d</div></div>
       </div>
 
       ${barsHTML('Top Developers',     s.top_developers, '#e50914', 'developer',  'gameDrillRow')}

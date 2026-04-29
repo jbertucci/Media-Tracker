@@ -537,6 +537,11 @@ def games_stats_titles():
             'SELECT name, first_release_date, cover_image_id, status, date_completed, completed_fully '
             'FROM games WHERE status=? ORDER BY date_completed DESC', (value,)
         ).fetchall()
+    elif filter_type == 'fully_completed':
+        rows = cur.execute(
+            'SELECT name, first_release_date, cover_image_id, status, date_completed, completed_fully '
+            'FROM games WHERE completed_fully=1 ORDER BY date_completed DESC'
+        ).fetchall()
     else:
         conn.close()
         return jsonify({'error': f'Unknown type: {filter_type}'}), 400
