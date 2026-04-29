@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import sqlite3
@@ -256,6 +257,92 @@ def add_game(title, status='completed', date_completed=None, db_path='tmdb_analy
     )
     fetch_wikidata_game_enrichment(game_id, db_path)
     return game_id
+
+
+def import_games_from_csv(csv_path, db_path='tmdb_analytics.db'):
+    """
+    Import completed games from a CSV with 'Date completed', 'Title', and '100%' columns.
+    Missing years are inferred from the surrounding rows.
+    """
+    raw_entries = []
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            title = row.get('Title', '').strip()
+            if title:
+                raw_entries.append({
+                    'title':   title,
+                    'raw_date': row.get('Date completed', '').strip(),
+                    'fully':   row.get('100%', '').strip().lower() == 'yes',
+                })
+
+    entries, skipped = [], []
+    prev_date = None
+    for entry in raw_entries:
+        raw = entry['raw_date']
+        parsed = None
+
+        for fmt in ('%m/%d/%y', '%m/%d/%Y'):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                pass
+
+        if parsed is None:
+            try:
+                md = datetime.strptime(raw, '%m/%d')
+                # Infer year: if this month is before the previous entry's month, roll to next year
+                if prev_date is None:
+                    year = datetime.now(timezone.utc).year
+                elif md.month < prev_date.month:
+                    year = prev_date.year + 1
+                else:
+                    year = prev_date.year
+                parsed = md.replace(year=year)
+            except ValueError:
+                skipped.append((entry['title'], raw))
+                continue
+
+        prev_date = parsed
+        entries.append({'title': entry['title'], 'date': parsed, 'fully': entry['fully']})
+
+    print(f'Found {len(entries)} games to import.')
+    if skipped:
+        print(f'Skipping {len(skipped)} unparseable entries:')
+        for t, d in skipped:
+            print(f'  - "{t}": "{d}"')
+    print()
+
+    succeeded, failed = [], []
+    for entry in entries:
+        title    = entry['title']
+        date_str = entry['date'].strftime('%Y-%m-%d')
+        fully    = entry['fully']
+        try:
+            results = search_game(title)
+            top     = results[0]
+            year    = '????'
+            if 'first_release_date' in top:
+                year = datetime.fromtimestamp(top['first_release_date'], tz=timezone.utc).strftime('%Y')
+            print(f'  "{title}" → {top["name"]} ({year}){" [100%]" if fully else ""}')
+            game_id = fetch_and_store_game(
+                top['id'], db_path,
+                status='completed',
+                date_completed=date_str,
+                completed_fully=fully,
+            )
+            fetch_wikidata_game_enrichment(game_id, db_path)
+            succeeded.append(title)
+            time.sleep(0.3)
+        except Exception as e:
+            print(f'  ✗ "{title}" — {e}')
+            failed.append((title, str(e)))
+
+    print(f'\nImport complete: {len(succeeded)} succeeded, {len(failed)} failed.')
+    if failed:
+        print('Failed titles:')
+        for title, err in failed:
+            print(f'  - "{title}": {err}')
 
 
 def view_games(db_path='tmdb_analytics.db'):

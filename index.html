@@ -365,6 +365,7 @@
     <div class="game-subnav">
       <button id="gsub-search" class="active" onclick="setGameSubview('search')">Search</button>
       <button id="gsub-list" onclick="setGameSubview('list')">My Games</button>
+      <button id="gsub-stats" onclick="setGameSubview('stats')">Stats</button>
     </div>
     <div id="game-search-pane">
       <div class="search-row">
@@ -373,6 +374,9 @@
         <button id="game-search-btn" onclick="doGameSearch()">Search</button>
       </div>
       <div id="game-search-results"></div>
+    </div>
+    <div id="game-stats-pane" style="display:none">
+      <div id="game-stats-content"><div class="loading">Loading&hellip;</div></div>
     </div>
     <div id="game-list-pane" style="display:none">
       <div class="status-pills">
@@ -712,11 +716,66 @@
   }
 
   function setGameSubview(view) {
-    document.getElementById('game-search-pane').style.display = view === 'search' ? 'block' : 'none';
-    document.getElementById('game-list-pane').style.display   = view === 'list'   ? 'block' : 'none';
-    document.getElementById('gsub-search').classList.toggle('active', view === 'search');
-    document.getElementById('gsub-list').classList.toggle('active', view === 'list');
-    if (view === 'list') loadGameList('');
+    ['search', 'list', 'stats'].forEach(v => {
+      document.getElementById(`game-${v}-pane`).style.display = v === view ? 'block' : 'none';
+      document.getElementById(`gsub-${v}`).classList.toggle('active', v === view);
+    });
+    if (view === 'list')  loadGameList('');
+    if (view === 'stats') loadGameStats();
+  }
+
+  async function loadGameStats() {
+    const el = document.getElementById('game-stats-content');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      renderGameStats(await apiFetch('/games/stats'));
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function renderGameStats(s) {
+    const el = document.getElementById('game-stats-content');
+    const statusColors = { Completed: '#4caf50', Playing: '#5b8dee', 'Want to Play': '#ff9800', Dropped: '#888' };
+
+    el.innerHTML = `
+      <div class="stat-summary">
+        <div class="stat-card"><div class="stat-num">${s.summary.total}</div><div class="stat-label">Games</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.completed}</div><div class="stat-label">Completed</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.completion_rate}%</div><div class="stat-label">100%'d</div></div>
+      </div>
+
+      ${barsHTML('Top Developers', s.top_developers, '#e50914')}
+      ${barsHTML('Top Publishers', s.top_publishers, '#5b8dee')}
+      ${barsHTML('Genres',         s.top_genres,     '#4caf50')}
+      ${s.perspectives.length ? barsHTML('Camera Perspective', s.perspectives, '#7c5cbf') : ''}
+      ${barsHTML('Completions by Year', s.by_year, '#ff9800')}
+
+      ${s.status_breakdown.length > 1 ? `
+      <div class="stat-section"><h3>Library Breakdown</h3>
+        <div class="split-bar">
+          ${s.status_breakdown.map(i => {
+            const total = s.status_breakdown.reduce((a, b) => a + b.count, 0);
+            const pct   = (i.count / total * 100).toFixed(1);
+            const color = statusColors[i.label] || '#888';
+            return `<div class="split-seg" style="width:0; background:${color}" data-w="${pct}%" title="${esc(i.label)}: ${pct}%"></div>`;
+          }).join('')}
+        </div>
+        <div class="split-legend">
+          ${s.status_breakdown.map(i => {
+            const total = s.status_breakdown.reduce((a, b) => a + b.count, 0);
+            const pct   = (i.count / total * 100).toFixed(0);
+            const color = statusColors[i.label] || '#888';
+            return `<div class="legend-item"><span class="legend-dot" style="background:${color}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
+    `;
+
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelectorAll('[data-w]').forEach(b => { b.style.width = b.dataset.w; });
+    }));
   }
 
   let currentGameFilter = '';

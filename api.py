@@ -404,13 +404,13 @@ def games_list():
     if status_filter:
         rows = cur.execute(
             'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
-            'FROM games WHERE status=? ORDER BY datetime_added DESC',
+            'FROM games WHERE status=? ORDER BY date_completed DESC, datetime_added DESC',
             (status_filter,)
         ).fetchall()
     else:
         rows = cur.execute(
             'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
-            'FROM games ORDER BY datetime_added DESC'
+            'FROM games ORDER BY date_completed DESC, datetime_added DESC'
         ).fetchall()
     result = []
     for r in rows:
@@ -429,6 +429,78 @@ def games_list():
         })
     conn.close()
     return jsonify(result)
+
+
+@app.route('/games/stats')
+def games_stats():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    summary = cur.execute('''
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN status="completed"    THEN 1 ELSE 0 END) as completed,
+            SUM(CASE WHEN completed_fully=1     THEN 1 ELSE 0 END) as fully_completed,
+            SUM(CASE WHEN status="playing"      THEN 1 ELSE 0 END) as playing,
+            SUM(CASE WHEN status="want_to_play" THEN 1 ELSE 0 END) as want_to_play,
+            SUM(CASE WHEN status="dropped"      THEN 1 ELSE 0 END) as dropped
+        FROM games
+    ''').fetchone()
+
+    top_devs = cur.execute('''
+        SELECT name, COUNT(DISTINCT game_id) as count FROM game_developers
+        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC LIMIT 5
+    ''').fetchall()
+
+    top_pubs = cur.execute('''
+        SELECT name, COUNT(DISTINCT game_id) as count FROM game_publishers
+        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC LIMIT 5
+    ''').fetchall()
+
+    top_genres = cur.execute('''
+        SELECT name, COUNT(DISTINCT game_id) as count FROM game_genres
+        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
+    perspectives = cur.execute('''
+        SELECT name, COUNT(DISTINCT game_id) as count FROM game_perspectives
+        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC
+    ''').fetchall()
+
+    by_year = cur.execute('''
+        SELECT SUBSTR(date_completed, 1, 4) as label, COUNT(*) as count
+        FROM games WHERE date_completed IS NOT NULL AND status="completed"
+        GROUP BY label ORDER BY label
+    ''').fetchall()
+
+    conn.close()
+
+    completed   = summary['completed'] or 0
+    fully       = summary['fully_completed'] or 0
+    status_data = [
+        {'label': 'Completed',    'count': completed},
+        {'label': 'Playing',      'count': summary['playing'] or 0},
+        {'label': 'Want to Play', 'count': summary['want_to_play'] or 0},
+        {'label': 'Dropped',      'count': summary['dropped'] or 0},
+    ]
+
+    return jsonify({
+        'summary': {
+            'total':           summary['total'] or 0,
+            'completed':       completed,
+            'fully_completed': fully,
+            'completion_rate': round(fully / completed * 100) if completed else 0,
+        },
+        'top_developers': [dict(r) for r in top_devs],
+        'top_publishers': [dict(r) for r in top_pubs],
+        'top_genres':     [dict(r) for r in top_genres],
+        'perspectives':   [dict(r) for r in perspectives],
+        'by_year':        [dict(r) for r in by_year],
+        'status_breakdown': [s for s in status_data if s['count'] > 0],
+    })
 
 
 @app.route('/games/<int:game_id>', methods=['DELETE'])
