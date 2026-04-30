@@ -335,6 +335,14 @@
     #notes-textarea:focus { border-color:var(--accent); }
     .notes-save-btn { margin-top:10px; flex-shrink:0; }
 
+    .book-cover-lg { width:54px; height:72px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
+    .book-cover-sm { width:40px; height:53px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
+    .book-cover-xs { width:33px; height:44px; object-fit:cover; border-radius:3px; flex-shrink:0; background:var(--surface2); }
+    .badge-read         { background:#1b3a1f; color:#4caf50; }
+    .badge-reading      { background:#1a2a4a; color:#5b8dee; }
+    .badge-want_to_read { background:#3a2a0a; color:#ff9800; }
+    .badge-dropped      { background:#2a1a1a; color:#888; }
+
     .poster-sm { width: 40px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--surface2); }
     .poster-xs { width: 33px; height: 50px; object-fit: cover; border-radius: 3px; flex-shrink: 0; background: var(--surface2); }
     .card-poster { width: 54px; height: 81px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--surface2); }
@@ -350,6 +358,7 @@
 <div class="tabs">
   <div class="tab active" onclick="switchTab('movies')">Movies</div>
   <div class="tab" onclick="switchTab('games')">Games</div>
+  <div class="tab" onclick="switchTab('books')">Books</div>
 </div>
 
 <main>
@@ -378,6 +387,35 @@
     </div>
     <div id="movie-stats-pane" style="display:none">
       <div id="stats-content"><div class="loading">Loading&hellip;</div></div>
+    </div>
+  </div>
+
+  <div id="books-view" class="view">
+    <div class="game-subnav">
+      <button id="bsub-search" class="active" onclick="setBookSubview('search')">Search</button>
+      <button id="bsub-list"   onclick="setBookSubview('list')">My Books</button>
+      <button id="bsub-stats"  onclick="setBookSubview('stats')">Stats</button>
+    </div>
+    <div id="book-search-pane">
+      <div class="search-row">
+        <input type="text" id="book-search-input" placeholder="Title or author..."
+               onkeydown="if(event.key==='Enter') doBookSearch()">
+        <button id="book-search-btn" onclick="doBookSearch()">Search</button>
+      </div>
+      <div id="book-search-results"></div>
+    </div>
+    <div id="book-list-pane" style="display:none">
+      <div class="status-pills">
+        <div class="status-pill active" data-status="" onclick="setBookFilter(this)">All</div>
+        <div class="status-pill" data-status="read"         onclick="setBookFilter(this)">Read</div>
+        <div class="status-pill" data-status="reading"      onclick="setBookFilter(this)">Reading</div>
+        <div class="status-pill" data-status="want_to_read" onclick="setBookFilter(this)">Want to Read</div>
+        <div class="status-pill" data-status="dropped"      onclick="setBookFilter(this)">Dropped</div>
+      </div>
+      <div id="book-list"></div>
+    </div>
+    <div id="book-stats-pane" style="display:none">
+      <div id="book-stats-content"><div class="loading">Loading&hellip;</div></div>
     </div>
   </div>
 
@@ -507,7 +545,7 @@
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   function switchTab(tab) {
-    const tabs = ['movies', 'games'];
+    const tabs = ['movies', 'games', 'books'];
     document.querySelectorAll('.tab').forEach((t, i) => {
       t.classList.toggle('active', tabs[i] === tab);
     });
@@ -835,6 +873,7 @@
       });
       closeStatusPicker();
       if (type === 'game') loadGameList(currentGameFilter);
+      else if (type === 'book') loadBookList(currentBookFilter);
       else loadMovies(currentMovieFilter);
       toast('Status updated', 'success');
     } catch (e) {
@@ -902,6 +941,256 @@
   function closeNotes() {
     document.getElementById('notes-modal').style.display = 'none';
     notesTarget = null;
+  }
+
+  // ── Books ─────────────────────────────────────────────────────────────────
+
+  const BOOK_STATUS_LABELS = { read:'Read', reading:'Reading', want_to_read:'Want to Read', dropped:'Dropped' };
+  const BOOK_STATUS_COLORS = { read:'#4caf50', reading:'#5b8dee', want_to_read:'#ff9800', dropped:'#888' };
+  const BOOK_STATUSES = [
+    { value:'read',         label:'Read' },
+    { value:'reading',      label:'Reading' },
+    { value:'want_to_read', label:'Want to Read' },
+    { value:'dropped',      label:'Dropped' },
+  ];
+
+  function bookCoverImg(url, cls) {
+    return url ? `<img class="${cls}" src="${url}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
+  }
+
+  function bookStatusBadge(status) {
+    return `<span class="status-badge badge-${status}">${BOOK_STATUS_LABELS[status] || status}</span>`;
+  }
+
+  function setBookSubview(view) {
+    ['search','list','stats'].forEach(v => {
+      document.getElementById(`book-${v}-pane`).style.display = v === view ? 'block' : 'none';
+      document.getElementById(`bsub-${v}`).classList.toggle('active', v === view);
+    });
+    if (view === 'list')  loadBookList('');
+    if (view === 'stats') loadBookStats();
+  }
+
+  let currentBookFilter = '';
+
+  function setBookFilter(pill) {
+    document.querySelectorAll('#book-list-pane .status-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentBookFilter = pill.dataset.status;
+    loadBookList(currentBookFilter);
+  }
+
+  // Search
+  async function doBookSearch() {
+    const q = document.getElementById('book-search-input').value.trim();
+    if (!q) return;
+    const btn = document.getElementById('book-search-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    document.getElementById('book-search-results').innerHTML = '';
+    try {
+      const results = await apiFetch(`/books/search?q=${encodeURIComponent(q)}`);
+      if (!results.length) {
+        document.getElementById('book-search-results').innerHTML = '<div class="empty">No results found.</div>';
+        return;
+      }
+      document.getElementById('book-search-results').innerHTML = results.map(r => `
+        <div class="game-card">
+          <div class="game-card-body">
+            ${bookCoverImg(r.cover_url, 'game-cover-lg')}
+            <div class="game-card-info">
+              <div class="game-card-title">${esc(r.title)}</div>
+              <div class="game-card-meta">${esc(r.authors || '—')} &middot; ${r.published_date ? r.published_date.slice(0,4) : '—'}</div>
+              ${r.description ? `<div class="game-card-overview">${esc(r.description)}</div>` : ''}
+            </div>
+          </div>
+          <div class="game-card-actions">
+            <select id="bstatus-${r.id}" onchange="toggleBookDate('${r.id}')">
+              <option value="read">Read</option>
+              <option value="reading">Reading</option>
+              <option value="want_to_read">Want to Read</option>
+              <option value="dropped">Dropped</option>
+            </select>
+            <input type="date" id="bdate-${r.id}" value="${today()}">
+            <button data-id="${r.id}" data-title="${esc(r.title)}" onclick="addBookBtn(this)">Add</button>
+          </div>
+        </div>`).join('');
+      results.forEach(r => toggleBookDate(r.id));
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Search';
+    }
+  }
+
+  function toggleBookDate(id) {
+    const status = document.getElementById(`bstatus-${id}`)?.value;
+    const dateEl = document.getElementById(`bdate-${id}`);
+    if (dateEl) dateEl.style.display = ['read','dropped'].includes(status) ? 'block' : 'none';
+  }
+
+  async function addBookBtn(btn) {
+    const id    = btn.dataset.id;
+    const title = btn.dataset.title;
+    const status  = document.getElementById(`bstatus-${id}`).value;
+    const dateEl  = document.getElementById(`bdate-${id}`);
+    const date_read = dateEl?.style.display !== 'none' ? dateEl.value : null;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      await apiFetch('/books/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ book_id: id, status, date_read: date_read || null }),
+      });
+      btn.textContent = '✓ Added';
+      btn.classList.add('btn-added');
+      toast(`Added: ${title}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Add';
+    }
+  }
+
+  // My Books list
+  async function loadBookList(status = '') {
+    const el = document.getElementById('book-list');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      const books = await apiFetch(`/books${status ? '?status=' + status : ''}`);
+      if (!books.length) {
+        el.innerHTML = '<div class="empty">No books yet.</div>';
+        return;
+      }
+      el.innerHTML = books.map(b => `
+        <div class="game-item" id="bi-${b.id}">
+          ${bookCoverImg(b.cover_url, 'book-cover-sm')}
+          <div class="gi-info" style="cursor:pointer"
+               data-type="book" data-id="${b.id}" data-title="${esc(b.title)}"
+               onclick="openNotesEl(this)">
+            <div class="gi-title">${esc(b.title)}${b.has_notes ? '<span class="note-dot"></span>' : ''}</div>
+            <div class="gi-meta">
+              ${esc(b.authors || '—')}
+              &middot; <span onclick="event.stopPropagation();openBookStatusPicker('${b.id}','${esc(b.title)}','${b.status}','${b.date_read||''}')"
+                             style="cursor:pointer">${bookStatusBadge(b.status)}</span>
+              ${b.date_read ? ' &middot; ' + b.date_read.slice(0,10) : ''}
+            </div>
+          </div>
+          <button class="btn-icon" data-id="${b.id}" data-title="${esc(b.title)}"
+                  onclick="removeBookBtn(this)" title="Remove">&times;</button>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function openBookStatusPicker(id, title, currentStatus, currentDate) {
+    statusPickerTarget = { type: 'book', id };
+    document.getElementById('status-picker-title').textContent = title;
+    document.querySelector('.status-options').innerHTML = BOOK_STATUSES.map(o =>
+      `<div class="status-opt${o.value === currentStatus ? ' selected' : ''}" data-value="${o.value}" onclick="selectStatus(this)">${o.label}</div>`
+    ).join('');
+    const dateEl = document.getElementById('status-picker-date');
+    dateEl.value = currentDate ? currentDate.slice(0,10) : today();
+    dateEl.style.display = ['read','dropped'].includes(currentStatus) ? 'block' : 'none';
+    document.getElementById('status-picker-modal').style.display = 'flex';
+  }
+
+  function removeBookBtn(btn) {
+    removeBook(btn.dataset.id, btn.dataset.title);
+  }
+
+  async function removeBook(id, title) {
+    if (!confirm(`Remove "${title}"?`)) return;
+    try {
+      await apiFetch(`/books/${id}`, { method: 'DELETE' });
+      document.getElementById(`bi-${id}`)?.remove();
+      toast(`Removed: ${title}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  // Stats
+  async function loadBookStats() {
+    const el = document.getElementById('book-stats-content');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      renderBookStats(await apiFetch('/books/stats'));
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function renderBookStats(s) {
+    const el = document.getElementById('book-stats-content');
+    const statusColors = { Read:'#4caf50', Reading:'#5b8dee', Dropped:'#888' };
+    el.innerHTML = `
+      <div class="stat-summary">
+        <div class="stat-card"><div class="stat-num">${s.summary.total}</div><div class="stat-label">Books</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.read}</div><div class="stat-label">Read</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.total_pages.toLocaleString()}</div><div class="stat-label">Pages</div></div>
+      </div>
+      ${barsHTML('Top Authors',     s.top_authors, '#e50914', 'author', 'bookDrillRow')}
+      ${barsHTML('Genres',          s.top_genres,  '#4caf50', 'genre',  'bookDrillRow')}
+      ${barsHTML('Books Read by Year', s.by_year,  '#ff9800', 'year',   'bookDrillRow')}
+      ${s.status_breakdown.length > 1 ? (() => {
+        const total = s.status_breakdown.reduce((a,b) => a + b.count, 0);
+        return `<div class="stat-section"><h3>Library Breakdown</h3>
+          <div class="split-bar">${s.status_breakdown.map(i => {
+            const pct = (i.count/total*100).toFixed(1);
+            const c   = statusColors[i.label] || '#888';
+            return `<div class="split-seg" style="width:0;background:${c}" data-w="${pct}%"
+                        title="${esc(i.label)}: ${pct}%"></div>`;
+          }).join('')}</div>
+          <div class="split-legend">${s.status_breakdown.map(i => {
+            const pct = (i.count/total*100).toFixed(0);
+            const c   = statusColors[i.label] || '#888';
+            const apiVal = i.label.toLowerCase();
+            return `<div class="legend-item clickable" data-drill-type="status" data-drill-val="${apiVal}"
+                        onclick="bookDrillRow(this)">
+              <span class="legend-dot" style="background:${c}"></span><span>${esc(i.label)} ${pct}%</span>
+            </div>`;
+          }).join('')}</div>
+        </div>`;
+      })() : ''}
+    `;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelectorAll('[data-w]').forEach(b => { b.style.width = b.dataset.w; });
+    }));
+  }
+
+  function bookDrillRow(el) {
+    bookDrillDown(el.dataset.drillType, el.dataset.drillVal);
+  }
+
+  async function bookDrillDown(type, value) {
+    document.getElementById('drill-title').textContent = value;
+    document.getElementById('drill-list').innerHTML = '<div class="loading">Loading&hellip;</div>';
+    document.getElementById('drill-modal').style.display = 'flex';
+    try {
+      const books = await apiFetch(`/books/stats/titles?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`);
+      if (!books.length) {
+        document.getElementById('drill-list').innerHTML = '<div class="empty">No books found.</div>';
+        return;
+      }
+      document.getElementById('drill-list').innerHTML = books.map((b, i) => `
+        <div class="drill-item">
+          <span class="drill-num">${i + 1}</span>
+          ${bookCoverImg(b.cover_url, 'book-cover-xs')}
+          <div class="drill-info">
+            <div class="drill-title">${esc(b.title)}</div>
+            <div class="drill-meta">${esc(b.authors || '—')} &middot; ${bookStatusBadge(b.status)}${b.date_read ? ' &middot; ' + b.date_read.slice(0,10) : ''}</div>
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      document.getElementById('drill-modal').style.display = 'none';
+    }
   }
 
   // ── Games ─────────────────────────────────────────────────────────────────

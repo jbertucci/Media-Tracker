@@ -18,6 +18,11 @@ from game_helpers import (
     search_game,
     setup_games_db,
 )
+from book_helpers import (
+    fetch_and_store_book,
+    search_book,
+    setup_books_db,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'tmdb_analytics.db')
@@ -82,6 +87,7 @@ def _ensure_game_battle_table():
     conn.close()
 
 _ensure_game_battle_table()
+setup_books_db(DB_PATH)
 
 
 def _auth():
@@ -667,6 +673,229 @@ def movie_update_status(film_id):
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+
+# ── Book routes ───────────────────────────────────────────────────────────────
+
+@app.route('/books/search')
+def books_search():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({'error': 'q is required'}), 400
+    try:
+        return jsonify(search_book(query))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+
+
+@app.route('/books/add', methods=['POST'])
+def books_add():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data      = request.get_json(silent=True) or {}
+    book_id   = data.get('book_id')
+    if not book_id:
+        return jsonify({'error': 'book_id is required'}), 400
+    status    = data.get('status', 'read')
+    date_read = data.get('date_read')
+    try:
+        fetch_and_store_book(book_id, DB_PATH, status=status, date_read=date_read)
+        return jsonify({'ok': True, 'book_id': book_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/books')
+def books_list():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    status_filter = request.args.get('status', '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    base = '''SELECT id, title, authors, published_date, page_count, cover_url, status, date_read,
+                     CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes
+              FROM books'''
+    if status_filter:
+        rows = cur.execute(
+            base + ' WHERE status=? ORDER BY date_read DESC, datetime_added DESC', (status_filter,)
+        ).fetchall()
+    else:
+        rows = cur.execute(
+            base + ' ORDER BY CASE WHEN status="reading" THEN 0 ELSE 1 END, date_read DESC, datetime_added DESC'
+        ).fetchall()
+    result = []
+    for r in rows:
+        genres = [x['name'] for x in cur.execute(
+            'SELECT name FROM book_genres WHERE book_id=?', (r['id'],)
+        ).fetchall()]
+        result.append({
+            'id':           r['id'],
+            'title':        r['title'],
+            'authors':      r['authors'],
+            'year':         r['published_date'][:4] if r['published_date'] else None,
+            'page_count':   r['page_count'],
+            'cover_url':    r['cover_url'],
+            'status':       r['status'],
+            'date_read':    r['date_read'],
+            'has_notes':    bool(r['has_notes']),
+            'genres':       genres,
+        })
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/books/stats')
+def books_stats():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    WR = "status != 'want_to_read'"
+
+    summary = cur.execute(f'''
+        SELECT COUNT(*) as total,
+               SUM(CASE WHEN status="read"     THEN 1 ELSE 0 END) as read_count,
+               SUM(CASE WHEN status="reading"  THEN 1 ELSE 0 END) as reading,
+               SUM(CASE WHEN status="dropped"  THEN 1 ELSE 0 END) as dropped,
+               SUM(CASE WHEN status="read" AND page_count IS NOT NULL THEN page_count ELSE 0 END) as total_pages
+        FROM books WHERE {WR}
+    ''').fetchone()
+
+    top_authors = cur.execute(f'''
+        SELECT authors as name, COUNT(*) as count FROM books
+        WHERE authors IS NOT NULL AND authors != '' AND {WR}
+        GROUP BY authors ORDER BY count DESC LIMIT 5
+    ''').fetchall()
+
+    top_genres = cur.execute(f'''
+        SELECT name, COUNT(DISTINCT book_id) as count FROM book_genres
+        WHERE name IS NOT NULL
+          AND book_id IN (SELECT id FROM books WHERE {WR})
+        GROUP BY name ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
+    by_year = cur.execute('''
+        SELECT SUBSTR(date_read, 1, 4) as label, COUNT(*) as count
+        FROM books WHERE date_read IS NOT NULL AND status="read"
+        GROUP BY label ORDER BY label
+    ''').fetchall()
+
+    status_data = [
+        {'label': 'Read',         'count': summary['read_count'] or 0},
+        {'label': 'Reading',      'count': summary['reading']    or 0},
+        {'label': 'Dropped',      'count': summary['dropped']    or 0},
+    ]
+    conn.close()
+    return jsonify({
+        'summary': {
+            'total':       summary['total'] or 0,
+            'read':        summary['read_count'] or 0,
+            'total_pages': summary['total_pages'] or 0,
+        },
+        'top_authors':      [dict(r) for r in top_authors],
+        'top_genres':       [dict(r) for r in top_genres],
+        'by_year':          [dict(r) for r in by_year],
+        'status_breakdown': [s for s in status_data if s['count'] > 0],
+    })
+
+
+@app.route('/books/stats/titles')
+def books_stats_titles():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    filter_type = request.args.get('type', '').strip()
+    value       = request.args.get('value', '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    if filter_type == 'author':
+        rows = cur.execute(
+            'SELECT id, title, authors, published_date, cover_url, status, date_read FROM books '
+            'WHERE authors=? ORDER BY date_read DESC', (value,)
+        ).fetchall()
+    elif filter_type == 'genre':
+        rows = cur.execute(
+            'SELECT b.id, b.title, b.authors, b.published_date, b.cover_url, b.status, b.date_read FROM books b '
+            'JOIN book_genres g ON b.id=g.book_id WHERE g.name=? ORDER BY b.date_read DESC', (value,)
+        ).fetchall()
+    elif filter_type == 'year':
+        rows = cur.execute(
+            'SELECT id, title, authors, published_date, cover_url, status, date_read FROM books '
+            'WHERE SUBSTR(date_read,1,4)=? ORDER BY date_read DESC', (value,)
+        ).fetchall()
+    elif filter_type == 'status':
+        rows = cur.execute(
+            'SELECT id, title, authors, published_date, cover_url, status, date_read FROM books '
+            'WHERE status=? ORDER BY date_read DESC', (value,)
+        ).fetchall()
+    else:
+        conn.close()
+        return jsonify({'error': f'Unknown type: {filter_type}'}), 400
+    conn.close()
+    return jsonify([{
+        'title':     r['title'],
+        'authors':   r['authors'],
+        'year':      r['published_date'][:4] if r['published_date'] else None,
+        'cover_url': r['cover_url'],
+        'status':    r['status'],
+        'date_read': r['date_read'],
+    } for r in rows])
+
+
+@app.route('/books/<book_id>/notes', methods=['GET', 'POST'])
+def book_notes(book_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    if request.method == 'POST':
+        notes = (request.get_json(silent=True) or {}).get('notes', '')
+        conn.execute('UPDATE books SET notes=? WHERE id=?', (notes, book_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    row = conn.execute('SELECT notes FROM books WHERE id=?', (book_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'notes': row[0] or ''})
+
+
+@app.route('/books/<book_id>/status', methods=['POST'])
+def books_update_status(book_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data      = request.get_json(silent=True) or {}
+    status    = data.get('status', '').strip()
+    date_read = data.get('date_read')
+    if status not in ('read', 'reading', 'want_to_read', 'dropped'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('UPDATE books SET status=?, date_read=? WHERE id=?',
+                 (status, date_read or None, book_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/books/<book_id>', methods=['DELETE'])
+def books_remove(book_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute('SELECT title FROM books WHERE id=?', (book_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Book not found'}), 404
+    conn.execute('DELETE FROM book_genres WHERE book_id=?', (book_id,))
+    conn.execute('DELETE FROM books WHERE id=?', (book_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'removed': row[0]})
 
 
 # ── Notes ─────────────────────────────────────────────────────────────────────
