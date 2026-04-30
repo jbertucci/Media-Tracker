@@ -93,6 +93,7 @@ def setup_games_db(db_path='tmdb_analytics.db'):
         ('completed_fully', 'INTEGER DEFAULT 0'),
         ('rank',            'INTEGER'),
         ('date_ranked',     'TEXT'),
+        ('notes',           'TEXT'),
     ]:
         try:
             conn.execute(f'ALTER TABLE games ADD COLUMN {col} {col_type}')

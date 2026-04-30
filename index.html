@@ -320,6 +320,21 @@
     .game-item .gi-title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .game-item .gi-meta { color:var(--muted); font-size:0.78rem; margin-top:3px; }
 
+    .note-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--accent); margin-left:5px; vertical-align:middle; flex-shrink:0; }
+    .status-picker-modal .modal { max-width:320px; }
+    .status-picker-modal h2 { font-size:0.95rem; margin-bottom:14px; }
+    .status-options { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+    .status-opt { background:var(--surface2); border:2px solid var(--border); border-radius:var(--radius); padding:10px; text-align:center; cursor:pointer; font-size:0.85rem; transition:border-color 0.15s; }
+    .status-opt.selected { border-color:var(--accent); color:var(--text); }
+    .status-opt:not(.selected) { color:var(--muted); }
+    #status-picker-date { margin-bottom:12px; display:none; }
+    .notes-modal .modal { max-height:85dvh; display:flex; flex-direction:column; }
+    .notes-modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-shrink:0; }
+    .notes-modal-header h2 { font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%; }
+    #notes-textarea { flex:1; min-height:220px; background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); padding:10px 12px; font-size:0.92rem; line-height:1.5; resize:none; outline:none; font-family:inherit; color-scheme:dark; }
+    #notes-textarea:focus { border-color:var(--accent); }
+    .notes-save-btn { margin-top:10px; flex-shrink:0; }
+
     .poster-sm { width: 40px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--surface2); }
     .poster-xs { width: 33px; height: 50px; object-fit: cover; border-radius: 3px; flex-shrink: 0; background: var(--surface2); }
     .card-poster { width: 54px; height: 81px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--surface2); }
@@ -393,6 +408,32 @@
 </main>
 
 <div class="toast" id="toast"></div>
+
+<div class="modal-backdrop status-picker-modal" id="status-picker-modal" style="display:none" onclick="if(event.target===this)closeStatusPicker()">
+  <div class="modal">
+    <h2 id="status-picker-title">Change Status</h2>
+    <div class="status-options">
+      <div class="status-opt" data-value="completed"    onclick="selectStatus(this)">Completed</div>
+      <div class="status-opt" data-value="playing"      onclick="selectStatus(this)">Playing</div>
+      <div class="status-opt" data-value="want_to_play" onclick="selectStatus(this)">Want to Play</div>
+      <div class="status-opt" data-value="dropped"      onclick="selectStatus(this)">Dropped</div>
+    </div>
+    <input type="date" id="status-picker-date" value="">
+    <button onclick="saveStatus()">Save</button>
+    <button onclick="closeStatusPicker()" style="background:var(--surface2);color:var(--text);margin-top:6px;width:100%">Cancel</button>
+  </div>
+</div>
+
+<div class="modal-backdrop notes-modal" id="notes-modal" style="display:none" onclick="if(event.target===this)closeNotes()">
+  <div class="modal">
+    <div class="notes-modal-header">
+      <h2 id="notes-modal-title"></h2>
+      <button class="btn-icon" onclick="closeNotes()" style="font-size:1.3rem">&times;</button>
+    </div>
+    <textarea id="notes-textarea" placeholder="Write your review or journal entry&hellip;"></textarea>
+    <button class="notes-save-btn" onclick="saveNotes()">Save</button>
+  </div>
+</div>
 
 <div id="battle-overlay" style="display:none">
   <div class="bo-header">
@@ -524,7 +565,13 @@
               ${r.overview ? `<div class="card-overview">${esc(r.overview)}</div>` : ''}
             </div>
           </div>
-          <div class="card-actions">
+          <div class="card-actions" style="flex-wrap:wrap">
+            <div style="display:flex;gap:6px;width:100%">
+              <button class="movie-status-pill active" data-id="${r.id}" data-value="watched"
+                      onclick="setMovieAddStatus(this)" style="flex:1;padding:6px;font-size:0.8rem;background:var(--surface);color:var(--text);border:1px solid var(--accent)">Watched</button>
+              <button class="movie-status-pill" data-id="${r.id}" data-value="want_to_watch"
+                      onclick="setMovieAddStatus(this)" style="flex:1;padding:6px;font-size:0.8rem;background:var(--surface);color:var(--muted);border:1px solid var(--border)">Want to Watch</button>
+            </div>
             <input type="date" id="date-${r.id}" value="${today()}">
             <button data-id="${r.id}" data-title="${esc(r.title)}" data-date="date-${r.id}"
                     onclick="addMovieBtn(this)">Add</button>
@@ -541,13 +588,28 @@
 
   // ── Add movie ─────────────────────────────────────────────────────────────
 
+  function setMovieAddStatus(btn) {
+    const id = btn.dataset.id;
+    document.querySelectorAll(`.movie-status-pill[data-id="${id}"]`).forEach(b => {
+      const active = b === btn;
+      b.classList.toggle('active', active);
+      b.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+      b.style.color = active ? 'var(--text)' : 'var(--muted)';
+    });
+    const dateEl = document.getElementById(`date-${id}`);
+    if (dateEl) dateEl.style.display = btn.dataset.value === 'watched' ? 'block' : 'none';
+  }
+
   function addMovieBtn(btn) {
     const { id, title, date } = btn.dataset;
     addMovie(parseInt(id), title, date, btn);
   }
 
   async function addMovie(tmdbId, title, dateInputId, btn) {
-    const dateVal = document.getElementById(dateInputId).value;
+    const dateEl  = document.getElementById(dateInputId);
+    const dateVal = dateEl?.style.display !== 'none' ? dateEl?.value : null;
+    const statusBtn = document.querySelector(`.movie-status-pill[data-id="${tmdbId}"].active`);
+    const status  = statusBtn?.dataset.value || 'watched';
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
 
@@ -555,7 +617,7 @@
       await apiFetch('/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tmdb_id: tmdbId, date_watched: dateVal || null }),
+        body: JSON.stringify({ tmdb_id: tmdbId, date_watched: dateVal || null, status }),
       });
       btn.textContent = '✓ Added';
       btn.classList.add('btn-added');
@@ -581,9 +643,13 @@
       el.innerHTML = movies.map(m => `
         <div class="movie-item" id="mi-${m.id}">
           ${posterImg(m.poster_path, 'poster-sm')}
-          <div class="info">
-            <div class="m-title">${esc(m.title)}</div>
-            <div class="m-meta">${m.year || '—'} &middot; ${m.watch_count}x watched${m.last_watched ? ' &middot; ' + m.last_watched.slice(0,10) : ''}</div>
+          <div class="info" style="cursor:pointer" onclick="openNotes('movie',${m.id},'${esc(m.title)}')">
+            <div class="m-title">${esc(m.title)}${m.has_notes ? '<span class="note-dot"></span>' : ''}</div>
+            <div class="m-meta">
+              ${m.year || '—'} &middot;
+              <span onclick="event.stopPropagation();openStatusPicker('movie',${m.id},'${esc(m.title)}','${m.status}','')" style="cursor:pointer">${statusBadge(m.status)}</span>
+              ${m.status === 'watched' ? '&middot; ' + m.watch_count + 'x watched' + (m.last_watched ? ' &middot; ' + m.last_watched.slice(0,10) : '') : ''}
+            </div>
           </div>
           <button class="btn-icon" data-id="${m.id}" data-title="${esc(m.title)}"
                   onclick="removeMovieBtn(this)" title="Remove">&times;</button>
@@ -699,6 +765,118 @@
     </div>`;
   }
 
+  // ── Status picker (movies + games) ───────────────────────────────────────
+
+  const MOVIE_STATUSES = [
+    { value: 'watched',       label: 'Watched' },
+    { value: 'want_to_watch', label: 'Want to Watch' },
+  ];
+  const GAME_STATUSES = [
+    { value: 'completed',    label: 'Completed' },
+    { value: 'playing',      label: 'Playing' },
+    { value: 'want_to_play', label: 'Want to Play' },
+    { value: 'dropped',      label: 'Dropped' },
+  ];
+  const DATE_STATUSES = ['completed', 'dropped'];
+
+  let statusPickerTarget = null;
+
+  function openStatusPicker(type, id, name, currentStatus, currentDate) {
+    statusPickerTarget = { type, id };
+    document.getElementById('status-picker-title').textContent = name;
+    const opts = type === 'movie' ? MOVIE_STATUSES : GAME_STATUSES;
+    document.querySelector('.status-options').innerHTML = opts.map(o =>
+      `<div class="status-opt${o.value === currentStatus ? ' selected' : ''}" data-value="${o.value}" onclick="selectStatus(this)">${o.label}</div>`
+    ).join('');
+    const dateEl = document.getElementById('status-picker-date');
+    dateEl.value = currentDate ? currentDate.slice(0, 10) : today();
+    dateEl.style.display = DATE_STATUSES.includes(currentStatus) ? 'block' : 'none';
+    document.getElementById('status-picker-modal').style.display = 'flex';
+  }
+
+  function selectStatus(el) {
+    document.querySelectorAll('.status-opt').forEach(o => o.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('status-picker-date').style.display =
+      DATE_STATUSES.includes(el.dataset.value) ? 'block' : 'none';
+  }
+
+  async function saveStatus() {
+    const { type, id } = statusPickerTarget;
+    const status = document.querySelector('.status-opt.selected')?.dataset.value;
+    if (!status) return;
+    const dateEl = document.getElementById('status-picker-date');
+    const date_completed = dateEl.style.display !== 'none' ? dateEl.value : null;
+    const body = type === 'movie' ? { status } : { status, date_completed };
+    try {
+      await apiFetch(`/${type}s/${id}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      closeStatusPicker();
+      if (type === 'game') loadGameList(currentGameFilter);
+      else loadMovies();
+      toast('Status updated', 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  function closeStatusPicker() {
+    document.getElementById('status-picker-modal').style.display = 'none';
+    statusPickerTarget = null;
+  }
+
+  // ── Notes ─────────────────────────────────────────────────────────────────
+
+  let notesTarget = null;
+
+  async function openNotes(type, id, title) {
+    notesTarget = { type, id };
+    document.getElementById('notes-modal-title').textContent = title;
+    document.getElementById('notes-textarea').value = '';
+    document.getElementById('notes-modal').style.display = 'flex';
+    try {
+      const data = await apiFetch(`/${type}s/${id}/notes`);
+      document.getElementById('notes-textarea').value = data.notes || '';
+    } catch (_) {}
+    document.getElementById('notes-textarea').focus();
+  }
+
+  async function saveNotes() {
+    if (!notesTarget) return;
+    const { type, id } = notesTarget;
+    const notes = document.getElementById('notes-textarea').value;
+    try {
+      await apiFetch(`/${type}s/${id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      });
+      // Update note dot without reloading the full list
+      const item = document.getElementById(type === 'movie' ? `mi-${id}` : `gi-${id}`);
+      if (item) {
+        const titleEl = item.querySelector('.m-title, .gi-title');
+        const existing = titleEl?.querySelector('.note-dot');
+        if (notes.trim() && !existing) {
+          titleEl.insertAdjacentHTML('beforeend', '<span class="note-dot"></span>');
+        } else if (!notes.trim() && existing) {
+          existing.remove();
+        }
+      }
+      closeNotes();
+      toast('Notes saved', 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  function closeNotes() {
+    document.getElementById('notes-modal').style.display = 'none';
+    notesTarget = null;
+  }
+
   // ── Games ─────────────────────────────────────────────────────────────────
 
   const IGDB_IMG = 'https://images.igdb.com/igdb/image/upload/';
@@ -710,10 +888,21 @@
     return url ? `<img class="${cls}" src="${url}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
   }
 
-  const STATUS_LABELS = { completed: 'Completed', playing: 'Playing', want_to_play: 'Want to Play', dropped: 'Dropped' };
+  const STATUS_LABELS = {
+    completed: 'Completed', playing: 'Playing', want_to_play: 'Want to Play', dropped: 'Dropped',
+    watched: 'Watched', want_to_watch: 'Want to Watch',
+  };
+  const STATUS_COLORS = {
+    completed: '#4caf50', playing: '#5b8dee', want_to_play: '#ff9800', dropped: '#888',
+    watched: '#4caf50', want_to_watch: '#ff9800',
+  };
 
   function statusBadge(status) {
-    return `<span class="status-badge badge-${status}">${STATUS_LABELS[status] || status}</span>`;
+    const gameBadged = ['completed','playing','want_to_play','dropped'].includes(status);
+    if (gameBadged) return `<span class="status-badge badge-${status}">${STATUS_LABELS[status] || status}</span>`;
+    const bg  = status === 'watched' ? '#1b3a1f' : '#3a2a0a';
+    const col = STATUS_COLORS[status] || '#888';
+    return `<span class="status-badge" style="background:${bg};color:${col}">${STATUS_LABELS[status] || status}</span>`;
   }
 
   function setGameSubview(view) {
@@ -885,12 +1074,12 @@
       el.innerHTML = games.map(g => `
         <div class="game-item" id="gi-${g.id}">
           ${igdbCoverImg(g.cover_image_id, 'game-cover-sm', 'cover_small')}
-          <div class="gi-info">
-            <div class="gi-title">${esc(g.name)}</div>
+          <div class="gi-info" style="cursor:pointer" onclick="openNotes('game',${g.id},'${esc(g.name)}')">
+            <div class="gi-title">${esc(g.name)}${g.has_notes ? '<span class="note-dot"></span>' : ''}</div>
             <div class="gi-meta">
               ${g.year || '—'}
               ${g.developers?.length ? ' &middot; ' + esc(g.developers[0]) : ''}
-              &middot; ${statusBadge(g.status)}
+              &middot; <span onclick="event.stopPropagation();openStatusPicker(${g.id},'${esc(g.name)}','${g.status}','${g.date_completed||''}')" style="cursor:pointer">${statusBadge(g.status)}</span>
               ${g.completed_fully ? ' <span class="status-badge" style="background:#1a2a3a;color:#5b8dee">100%</span>' : ''}
               ${g.date_completed ? ' &middot; ' + g.date_completed.slice(0,10) : ''}
             </div>

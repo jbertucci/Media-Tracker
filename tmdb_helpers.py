@@ -97,6 +97,8 @@ def setup_analytics_db(db_path='tmdb_analytics.db'):
         ('films', 'poster_path', 'TEXT'),
         ('films', 'rank', 'INTEGER'),
         ('films', 'date_ranked', 'TEXT'),
+        ('films', 'notes', 'TEXT'),
+        ('films', 'status', "TEXT DEFAULT 'watched'"),
         ('cast_members', 'ethnicity', 'TEXT'),
         ('cast_members', 'sexuality', 'TEXT'),
         ('crew_members', 'ethnicity', 'TEXT'),

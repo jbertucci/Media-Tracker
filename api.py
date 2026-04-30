@@ -51,11 +51,17 @@ def _ensure_battle_table():
             opponent_id   INTEGER
         )
     ''')
-    for col, col_type in [('rank', 'INTEGER'), ('date_ranked', 'TEXT')]:
+    for col, col_type in [
+        ('rank',        'INTEGER'),
+        ('date_ranked', 'TEXT'),
+        ('notes',       'TEXT'),
+        ('status',      "TEXT DEFAULT 'watched'"),
+    ]:
         try:
             conn.execute(f'ALTER TABLE films ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
+    conn.execute("UPDATE films SET status = 'watched' WHERE status IS NULL")
     conn.commit()
     conn.close()
 
@@ -129,6 +135,7 @@ def add():
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
 
+    status = (data.get('status') or 'watched').strip()
     try:
         film_id = fetch_and_store_movie(
             tmdb_id,
@@ -136,6 +143,14 @@ def add():
             first_watched=watch_ts,
             last_watched=watch_ts,
         )
+        if status == 'want_to_watch':
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute(
+                "UPDATE films SET status='want_to_watch', watch_count=0, datetime_last_watched=NULL WHERE id=?",
+                (film_id,)
+            )
+            conn.commit()
+            conn.close()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -155,7 +170,9 @@ def movies():
         return jsonify({'error': 'Unauthorized'}), 401
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        '''SELECT id, title, release_date, datetime_last_watched, watch_count, poster_path
+        '''SELECT id, title, release_date, datetime_last_watched, watch_count, poster_path,
+                  CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes,
+                  COALESCE(status, 'watched') as status
            FROM films ORDER BY datetime_last_watched DESC'''
     ).fetchall()
     conn.close()
@@ -167,6 +184,8 @@ def movies():
             'last_watched': r[3],
             'watch_count': r[4] or 0,
             'poster_path': r[5],
+            'has_notes':   bool(r[6]),
+            'status':      r[7],
         }
         for r in rows
     ])
@@ -272,66 +291,73 @@ def stats():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    summary = cur.execute('''
+    WW = "COALESCE(status,'watched') != 'want_to_watch'"  # exclude want-to-watch
+
+    summary = cur.execute(f'''
         SELECT
             COUNT(*) as total_films,
             COALESCE(SUM(watch_count), 0) as total_watches,
             COALESCE(SUM(CASE WHEN runtime IS NOT NULL THEN runtime * COALESCE(watch_count,1) ELSE 0 END), 0) as total_minutes,
             ROUND(AVG(CASE WHEN vote_average > 0 THEN vote_average END), 1) as avg_rating
-        FROM films
+        FROM films WHERE {WW}
     ''').fetchone()
 
     longest = cur.execute(
-        'SELECT title, runtime FROM films WHERE runtime IS NOT NULL ORDER BY runtime DESC LIMIT 1'
+        f'SELECT title, runtime FROM films WHERE runtime IS NOT NULL AND {WW} ORDER BY runtime DESC LIMIT 1'
     ).fetchone()
 
     most_watched = cur.execute(
-        'SELECT title, watch_count FROM films WHERE watch_count > 1 ORDER BY watch_count DESC LIMIT 1'
+        f'SELECT title, watch_count FROM films WHERE watch_count > 1 AND {WW} ORDER BY watch_count DESC LIMIT 1'
     ).fetchone()
 
     top_rated = cur.execute(
-        'SELECT title, vote_average FROM films WHERE vote_average > 0 ORDER BY vote_average DESC LIMIT 1'
+        f'SELECT title, vote_average FROM films WHERE vote_average > 0 AND {WW} ORDER BY vote_average DESC LIMIT 1'
     ).fetchone()
 
-    top_directors = cur.execute('''
+    top_directors = cur.execute(f'''
         SELECT name, COUNT(DISTINCT film_id) as count FROM crew_members
         WHERE job = 'Director' AND name IS NOT NULL
+          AND film_id IN (SELECT id FROM films WHERE {WW})
         GROUP BY name ORDER BY count DESC LIMIT 5
     ''').fetchall()
 
-    top_actors = cur.execute('''
+    top_actors = cur.execute(f'''
         SELECT name, COUNT(DISTINCT film_id) as count FROM cast_members
         WHERE billing_order <= 4 AND name IS NOT NULL
+          AND film_id IN (SELECT id FROM films WHERE {WW})
         GROUP BY name ORDER BY count DESC LIMIT 5
     ''').fetchall()
 
-    top_genres = cur.execute('''
+    top_genres = cur.execute(f'''
         SELECT name, COUNT(DISTINCT film_id) as count FROM genres
         WHERE name IS NOT NULL
+          AND film_id IN (SELECT id FROM films WHERE {WW})
         GROUP BY name ORDER BY count DESC LIMIT 8
     ''').fetchall()
 
-    top_years = cur.execute('''
+    top_years = cur.execute(f'''
         SELECT SUBSTR(release_date,1,4) as label, COUNT(*) as count FROM films
-        WHERE release_date IS NOT NULL AND LENGTH(release_date) >= 4
+        WHERE release_date IS NOT NULL AND LENGTH(release_date) >= 4 AND {WW}
         GROUP BY label ORDER BY count DESC LIMIT 8
     ''').fetchall()
 
-    decades = cur.execute('''
+    decades = cur.execute(f'''
         SELECT (CAST(SUBSTR(release_date,1,4) AS INTEGER)/10)*10 as decade, COUNT(*) as count
-        FROM films WHERE release_date IS NOT NULL AND LENGTH(release_date) >= 4
+        FROM films WHERE release_date IS NOT NULL AND LENGTH(release_date) >= 4 AND {WW}
         GROUP BY decade ORDER BY decade
     ''').fetchall()
 
-    cast_gender = cur.execute('''
+    cast_gender = cur.execute(f'''
         SELECT gender as label, COUNT(*) as count FROM cast_members
         WHERE gender IS NOT NULL AND gender != 'Unknown'
+          AND film_id IN (SELECT id FROM films WHERE {WW})
         GROUP BY gender ORDER BY count DESC
     ''').fetchall()
 
-    cast_ethnicity = cur.execute('''
+    cast_ethnicity = cur.execute(f'''
         SELECT ethnicity as label, COUNT(*) as count FROM cast_members
         WHERE ethnicity IS NOT NULL AND ethnicity != ''
+          AND film_id IN (SELECT id FROM films WHERE {WW})
         GROUP BY ethnicity ORDER BY count DESC LIMIT 7
     ''').fetchall()
 
@@ -418,13 +444,15 @@ def games_list():
     cur = conn.cursor()
     if status_filter:
         rows = cur.execute(
-            'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
+            'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully, '
+            'CASE WHEN notes IS NOT NULL AND notes != \'\' THEN 1 ELSE 0 END as has_notes '
             'FROM games WHERE status=? ORDER BY CASE WHEN status="playing" THEN 0 ELSE 1 END, date_completed DESC, datetime_added DESC',
             (status_filter,)
         ).fetchall()
     else:
         rows = cur.execute(
-            'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully '
+            'SELECT id, name, first_release_date, status, date_completed, cover_image_id, completed_fully, '
+            'CASE WHEN notes IS NOT NULL AND notes != \'\' THEN 1 ELSE 0 END as has_notes '
             'FROM games ORDER BY CASE WHEN status="playing" THEN 0 ELSE 1 END, date_completed DESC, datetime_added DESC'
         ).fetchall()
     result = []
@@ -440,6 +468,7 @@ def games_list():
             'date_completed':   r['date_completed'],
             'cover_image_id':   r['cover_image_id'],
             'completed_fully':  bool(r['completed_fully']),
+            'has_notes':        bool(r['has_notes']),
             'developers':       devs,
         })
     conn.close()
@@ -454,35 +483,44 @@ def games_stats():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    summary = cur.execute('''
+    WP = "status != 'want_to_play'"  # exclude want-to-play
+
+    summary = cur.execute(f'''
         SELECT
             COUNT(*) as total,
-            SUM(CASE WHEN status="completed"    THEN 1 ELSE 0 END) as completed,
-            SUM(CASE WHEN completed_fully=1     THEN 1 ELSE 0 END) as fully_completed,
-            SUM(CASE WHEN status="playing"      THEN 1 ELSE 0 END) as playing,
-            SUM(CASE WHEN status="want_to_play" THEN 1 ELSE 0 END) as want_to_play,
-            SUM(CASE WHEN status="dropped"      THEN 1 ELSE 0 END) as dropped
-        FROM games
+            SUM(CASE WHEN status="completed" THEN 1 ELSE 0 END) as completed,
+            SUM(CASE WHEN completed_fully=1  THEN 1 ELSE 0 END) as fully_completed,
+            SUM(CASE WHEN status="playing"   THEN 1 ELSE 0 END) as playing,
+            SUM(CASE WHEN status="dropped"   THEN 1 ELSE 0 END) as dropped
+        FROM games WHERE {WP}
     ''').fetchone()
 
-    top_devs = cur.execute('''
+    top_devs = cur.execute(f'''
         SELECT name, COUNT(DISTINCT game_id) as count FROM game_developers
-        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC LIMIT 5
+        WHERE name IS NOT NULL
+          AND game_id IN (SELECT id FROM games WHERE {WP})
+        GROUP BY name ORDER BY count DESC LIMIT 5
     ''').fetchall()
 
-    top_pubs = cur.execute('''
+    top_pubs = cur.execute(f'''
         SELECT name, COUNT(DISTINCT game_id) as count FROM game_publishers
-        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC LIMIT 5
+        WHERE name IS NOT NULL
+          AND game_id IN (SELECT id FROM games WHERE {WP})
+        GROUP BY name ORDER BY count DESC LIMIT 5
     ''').fetchall()
 
-    top_genres = cur.execute('''
+    top_genres = cur.execute(f'''
         SELECT name, COUNT(DISTINCT game_id) as count FROM game_genres
-        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC LIMIT 8
+        WHERE name IS NOT NULL
+          AND game_id IN (SELECT id FROM games WHERE {WP})
+        GROUP BY name ORDER BY count DESC LIMIT 8
     ''').fetchall()
 
-    perspectives = cur.execute('''
+    perspectives = cur.execute(f'''
         SELECT name, COUNT(DISTINCT game_id) as count FROM game_perspectives
-        WHERE name IS NOT NULL GROUP BY name ORDER BY count DESC
+        WHERE name IS NOT NULL
+          AND game_id IN (SELECT id FROM games WHERE {WP})
+        GROUP BY name ORDER BY count DESC
     ''').fetchall()
 
     by_year = cur.execute('''
@@ -496,15 +534,14 @@ def games_stats():
     completed   = summary['completed'] or 0
     fully       = summary['fully_completed'] or 0
     status_data = [
-        {'label': 'Completed',    'count': completed},
-        {'label': 'Playing',      'count': summary['playing'] or 0},
-        {'label': 'Want to Play', 'count': summary['want_to_play'] or 0},
-        {'label': 'Dropped',      'count': summary['dropped'] or 0},
+        {'label': 'Completed', 'count': completed},
+        {'label': 'Playing',   'count': summary['playing'] or 0},
+        {'label': 'Dropped',   'count': summary['dropped'] or 0},
     ]
 
     return jsonify({
         'summary': {
-            'total':           summary['total'] or 0,
+            'total':           (summary['total'] or 0),
             'completed':       completed,
             'fully_completed': fully,
             'completion_rate': round(fully / completed * 100) if completed else 0,
@@ -572,6 +609,25 @@ def games_stats_titles():
     } for r in rows])
 
 
+@app.route('/games/<int:game_id>/status', methods=['POST'])
+def games_update_status(game_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data           = request.get_json(silent=True) or {}
+    status         = data.get('status', '').strip()
+    date_completed = data.get('date_completed')
+    if status not in ('completed', 'playing', 'want_to_play', 'dropped'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        'UPDATE games SET status=?, date_completed=? WHERE id=?',
+        (status, date_completed or None, game_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/games/<int:game_id>', methods=['DELETE'])
 def games_remove(game_id):
     if not _auth():
@@ -589,6 +645,58 @@ def games_remove(game_id):
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'removed': name})
+
+
+@app.route('/movies/<int:film_id>/status', methods=['POST'])
+def movie_update_status(film_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    status = (request.get_json(silent=True) or {}).get('status', '').strip()
+    if status not in ('watched', 'want_to_watch'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('UPDATE films SET status=? WHERE id=?', (status, film_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+# ── Notes ─────────────────────────────────────────────────────────────────────
+
+@app.route('/movies/<int:film_id>/notes', methods=['GET', 'POST'])
+def movie_notes(film_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    if request.method == 'POST':
+        notes = (request.get_json(silent=True) or {}).get('notes', '')
+        conn.execute('UPDATE films SET notes=? WHERE id=?', (notes, film_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    row = conn.execute('SELECT notes FROM films WHERE id=?', (film_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'notes': row[0] or ''})
+
+
+@app.route('/games/<int:game_id>/notes', methods=['GET', 'POST'])
+def game_notes(game_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    if request.method == 'POST':
+        notes = (request.get_json(silent=True) or {}).get('notes', '')
+        conn.execute('UPDATE games SET notes=? WHERE id=?', (notes, game_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    row = conn.execute('SELECT notes FROM games WHERE id=?', (game_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'notes': row[0] or ''})
 
 
 # ── Battle helpers ────────────────────────────────────────────────────────────
