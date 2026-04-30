@@ -643,12 +643,17 @@
       el.innerHTML = movies.map(m => `
         <div class="movie-item" id="mi-${m.id}">
           ${posterImg(m.poster_path, 'poster-sm')}
-          <div class="info" style="cursor:pointer" onclick="openNotes('movie',${m.id},'${esc(m.title)}')">
+          <div class="info" style="cursor:pointer"
+               data-type="movie" data-id="${m.id}" data-title="${esc(m.title)}"
+               onclick="openNotesEl(this)">
             <div class="m-title">${esc(m.title)}${m.has_notes ? '<span class="note-dot"></span>' : ''}</div>
             <div class="m-meta">
               ${m.year || '—'} &middot;
-              <span onclick="event.stopPropagation();openStatusPicker('movie',${m.id},'${esc(m.title)}','${m.status}','')" style="cursor:pointer">${statusBadge(m.status)}</span>
+              <span onclick="event.stopPropagation();openStatusPickerEl(this,'movie')"
+                    data-id="${m.id}" data-title="${esc(m.title)}" data-status="${m.status}" data-date=""
+                    style="cursor:pointer">${statusBadge(m.status)}</span>
               ${m.status === 'watched' ? '&middot; ' + m.watch_count + 'x watched' + (m.last_watched ? ' &middot; ' + m.last_watched.slice(0,10) : '') : ''}
+              ${m.status === 'want_to_watch' && m.tmdb_status ? ' &middot; ' + tmdbStatusBadge(m.tmdb_status) : ''}
             </div>
           </div>
           <button class="btn-icon" data-id="${m.id}" data-title="${esc(m.title)}"
@@ -828,6 +833,14 @@
     statusPickerTarget = null;
   }
 
+  function openNotesEl(el) {
+    openNotes(el.dataset.type, parseInt(el.dataset.id), el.dataset.title);
+  }
+
+  function openStatusPickerEl(el, type) {
+    openStatusPicker(type, parseInt(el.dataset.id), el.dataset.title, el.dataset.status, el.dataset.date);
+  }
+
   // ── Notes ─────────────────────────────────────────────────────────────────
 
   let notesTarget = null;
@@ -896,6 +909,20 @@
     completed: '#4caf50', playing: '#5b8dee', want_to_play: '#ff9800', dropped: '#888',
     watched: '#4caf50', want_to_watch: '#ff9800',
   };
+
+  const TMDB_STATUS_COLORS = {
+    'Released':        { bg: '#1b3a1f', col: '#4caf50' },
+    'In Production':   { bg: '#1a2a4a', col: '#5b8dee' },
+    'Post Production': { bg: '#3a2a0a', col: '#ff9800' },
+    'Planned':         { bg: '#2a1a3a', col: '#7c5cbf' },
+    'Rumored':         { bg: '#252525', col: '#888'    },
+    'Canceled':        { bg: '#3a1a1a', col: '#e50914' },
+  };
+
+  function tmdbStatusBadge(status) {
+    const c = TMDB_STATUS_COLORS[status] || { bg: '#252525', col: '#888' };
+    return `<span class="status-badge" style="background:${c.bg};color:${c.col}">${esc(status)}</span>`;
+  }
 
   function statusBadge(status) {
     const gameBadged = ['completed','playing','want_to_play','dropped'].includes(status);
@@ -1074,12 +1101,16 @@
       el.innerHTML = games.map(g => `
         <div class="game-item" id="gi-${g.id}">
           ${igdbCoverImg(g.cover_image_id, 'game-cover-sm', 'cover_small')}
-          <div class="gi-info" style="cursor:pointer" onclick="openNotes('game',${g.id},'${esc(g.name)}')">
+          <div class="gi-info" style="cursor:pointer"
+               data-type="game" data-id="${g.id}" data-title="${esc(g.name)}"
+               onclick="openNotesEl(this)">
             <div class="gi-title">${esc(g.name)}${g.has_notes ? '<span class="note-dot"></span>' : ''}</div>
             <div class="gi-meta">
               ${g.year || '—'}
               ${g.developers?.length ? ' &middot; ' + esc(g.developers[0]) : ''}
-              &middot; <span onclick="event.stopPropagation();openStatusPicker(${g.id},'${esc(g.name)}','${g.status}','${g.date_completed||''}')" style="cursor:pointer">${statusBadge(g.status)}</span>
+              &middot; <span onclick="event.stopPropagation();openStatusPickerEl(this,'game')"
+                            data-id="${g.id}" data-title="${esc(g.name)}" data-status="${g.status}" data-date="${g.date_completed||''}"
+                            style="cursor:pointer">${statusBadge(g.status)}</span>
               ${g.completed_fully ? ' <span class="status-badge" style="background:#1a2a3a;color:#5b8dee">100%</span>' : ''}
               ${g.date_completed ? ' &middot; ' + g.date_completed.slice(0,10) : ''}
             </div>

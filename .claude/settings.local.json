@@ -12,7 +12,8 @@
       "Bash(conda run *)",
       "Bash(py -3.9 -c \"import flask; print\\('Flask', flask.__version__\\)\")",
       "Bash(ipconfig)",
-      "Bash(tailscale ip *)"
+      "Bash(tailscale ip *)",
+      "Bash(py -3.9 -c ' *)"
     ]
   }
 }

@@ -55,13 +55,13 @@ def _ensure_battle_table():
         ('rank',        'INTEGER'),
         ('date_ranked', 'TEXT'),
         ('notes',       'TEXT'),
-        ('status',      "TEXT DEFAULT 'watched'"),
+        ('watch_status', "TEXT DEFAULT 'watched'"),
     ]:
         try:
             conn.execute(f'ALTER TABLE films ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
-    conn.execute("UPDATE films SET status = 'watched' WHERE status IS NULL")
+    conn.execute("UPDATE films SET watch_status = 'watched' WHERE watch_status IS NULL")
     conn.commit()
     conn.close()
 
@@ -146,7 +146,7 @@ def add():
         if status == 'want_to_watch':
             conn = sqlite3.connect(DB_PATH)
             conn.execute(
-                "UPDATE films SET status='want_to_watch', watch_count=0, datetime_last_watched=NULL WHERE id=?",
+                "UPDATE films SET watch_status='want_to_watch', watch_count=0, datetime_last_watched=NULL WHERE id=?",
                 (film_id,)
             )
             conn.commit()
@@ -172,7 +172,8 @@ def movies():
     rows = conn.execute(
         '''SELECT id, title, release_date, datetime_last_watched, watch_count, poster_path,
                   CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes,
-                  COALESCE(status, 'watched') as status
+                  COALESCE(watch_status, 'watched') as status,
+                  status as tmdb_status
            FROM films ORDER BY datetime_last_watched DESC'''
     ).fetchall()
     conn.close()
@@ -186,6 +187,7 @@ def movies():
             'poster_path': r[5],
             'has_notes':   bool(r[6]),
             'status':      r[7],
+            'tmdb_status': r[8],
         }
         for r in rows
     ])
@@ -291,7 +293,7 @@ def stats():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    WW = "COALESCE(status,'watched') != 'want_to_watch'"  # exclude want-to-watch
+    WW = "COALESCE(watch_status,'watched') != 'want_to_watch'"  # exclude want-to-watch
 
     summary = cur.execute(f'''
         SELECT
@@ -655,7 +657,7 @@ def movie_update_status(film_id):
     if status not in ('watched', 'want_to_watch'):
         return jsonify({'error': 'Invalid status'}), 400
     conn = sqlite3.connect(DB_PATH)
-    conn.execute('UPDATE films SET status=? WHERE id=?', (status, film_id))
+    conn.execute('UPDATE films SET watch_status=? WHERE id=?', (status, film_id))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
