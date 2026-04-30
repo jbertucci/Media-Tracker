@@ -168,14 +168,20 @@ def add():
 def movies():
     if not _auth():
         return jsonify({'error': 'Unauthorized'}), 401
+    status_filter = request.args.get('status', '').strip()
     conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        '''SELECT id, title, release_date, datetime_last_watched, watch_count, poster_path,
-                  CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes,
-                  COALESCE(watch_status, 'watched') as status,
-                  status as tmdb_status
-           FROM films ORDER BY datetime_last_watched DESC'''
-    ).fetchall()
+    base = '''SELECT id, title, release_date, datetime_last_watched, watch_count, poster_path,
+                     CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes,
+                     COALESCE(watch_status, 'watched') as status,
+                     status as tmdb_status
+              FROM films'''
+    if status_filter:
+        rows = conn.execute(
+            base + " WHERE COALESCE(watch_status,'watched')=? ORDER BY datetime_last_watched DESC",
+            (status_filter,)
+        ).fetchall()
+    else:
+        rows = conn.execute(base + ' ORDER BY datetime_last_watched DESC').fetchall()
     conn.close()
     return jsonify([
         {

@@ -368,7 +368,12 @@
       <div id="search-results"></div>
     </div>
     <div id="movie-list-pane" style="display:none">
-      <button class="battle-btn" onclick="openBattle()">&#9876; Movie Battles</button>
+      <button class="battle-btn" onclick="openBattle('movies')">&#9876; Movie Battles</button>
+      <div class="status-pills">
+        <div class="status-pill active" data-status="" onclick="setMovieFilter(this)">All</div>
+        <div class="status-pill" data-status="watched" onclick="setMovieFilter(this)">Watched</div>
+        <div class="status-pill" data-status="want_to_watch" onclick="setMovieFilter(this)">Want to Watch</div>
+      </div>
       <div id="movies-list"><div class="loading">Loading&hellip;</div></div>
     </div>
     <div id="movie-stats-pane" style="display:none">
@@ -631,11 +636,20 @@
 
   // ── Movie list ────────────────────────────────────────────────────────────
 
-  async function loadMovies() {
+  let currentMovieFilter = '';
+
+  function setMovieFilter(pill) {
+    document.querySelectorAll('#movie-list-pane .status-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentMovieFilter = pill.dataset.status;
+    loadMovies(currentMovieFilter);
+  }
+
+  async function loadMovies(status = currentMovieFilter) {
     const el = document.getElementById('movies-list');
     el.innerHTML = '<div class="loading">Loading&hellip;</div>';
     try {
-      const movies = await apiFetch('/movies');
+      const movies = await apiFetch(`/movies${status ? '?status=' + status : ''}`);
       if (!movies.length) {
         el.innerHTML = '<div class="empty">No movies yet.</div>';
         return;
@@ -821,7 +835,7 @@
       });
       closeStatusPicker();
       if (type === 'game') loadGameList(currentGameFilter);
-      else loadMovies();
+      else loadMovies(currentMovieFilter);
       toast('Status updated', 'success');
     } catch (e) {
       toast(e.message, 'error');
