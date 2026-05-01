@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import time
 from datetime import datetime, timezone
 
 import requests
@@ -61,15 +62,25 @@ def _parse_volume(v):
     }
 
 
-def search_book(query):
-    """Search Google Books, return top 5 results."""
+def search_book(query, retries=3):
+    """Search Google Books, return top 5 results. Retries on transient failures."""
     params = {'q': query, 'maxResults': 5, 'key': BOOKS_API_KEY}
-    resp = requests.get(BOOKS_URL, params=params, timeout=15)
-    resp.raise_for_status()
-    items = resp.json().get('items', [])
-    if not items:
-        raise ValueError(f'No results found for "{query}"')
-    return [_parse_volume(v) for v in items]
+    last_err = None
+    for attempt in range(retries):
+        try:
+            resp = requests.get(BOOKS_URL, params=params, timeout=15)
+            resp.raise_for_status()
+            items = resp.json().get('items', [])
+            if not items:
+                raise ValueError(f'No results found for "{query}"')
+            return [_parse_volume(v) for v in items]
+        except ValueError:
+            raise  # "no results" — don't retry
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(0.5)
+    raise last_err
 
 
 def fetch_and_store_book(book_id, db_path='tmdb_analytics.db', status='read', date_read=None):

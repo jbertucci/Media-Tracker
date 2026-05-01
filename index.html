@@ -462,6 +462,9 @@
       <div class="status-opt" data-value="dropped"      onclick="selectStatus(this)">Dropped</div>
     </div>
     <input type="date" id="status-picker-date" value="">
+    <label id="status-picker-100-label" style="display:none;font-size:0.85rem;color:var(--muted);cursor:pointer;margin-bottom:12px">
+      <input type="checkbox" id="status-picker-100"> 100% completed
+    </label>
     <button onclick="saveStatus()">Save</button>
     <button onclick="closeStatusPicker()" style="background:var(--surface2);color:var(--text);margin-top:6px;width:100%">Cancel</button>
   </div>
@@ -848,6 +851,9 @@
     const dateEl = document.getElementById('status-picker-date');
     dateEl.value = currentDate ? currentDate.slice(0, 10) : today();
     dateEl.style.display = DATE_STATUSES.includes(currentStatus) ? 'block' : 'none';
+    document.getElementById('status-picker-100').checked = false;
+    document.getElementById('status-picker-100-label').style.display =
+      statusPickerTarget.type === 'game' && currentStatus === 'completed' ? 'flex' : 'none';
     document.getElementById('status-picker-modal').style.display = 'flex';
   }
 
@@ -856,6 +862,8 @@
     el.classList.add('selected');
     document.getElementById('status-picker-date').style.display =
       DATE_STATUSES.includes(el.dataset.value) ? 'block' : 'none';
+    document.getElementById('status-picker-100-label').style.display =
+      statusPickerTarget?.type === 'game' && el.dataset.value === 'completed' ? 'flex' : 'none';
   }
 
   async function saveStatus() {
@@ -864,7 +872,9 @@
     if (!status) return;
     const dateEl = document.getElementById('status-picker-date');
     const date_completed = dateEl.style.display !== 'none' ? dateEl.value : null;
-    const body = type === 'movie' ? { status } : { status, date_completed };
+    const completed_fully = document.getElementById('status-picker-100')?.checked || false;
+    const body = type === 'movie' ? { status }
+               : { status, date_completed, ...(status === 'completed' ? { completed_fully } : {}) };
     try {
       await apiFetch(`/${type}s/${id}/status`, {
         method: 'POST',

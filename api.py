@@ -627,15 +627,16 @@ def games_stats_titles():
 def games_update_status(game_id):
     if not _auth():
         return jsonify({'error': 'Unauthorized'}), 401
-    data           = request.get_json(silent=True) or {}
-    status         = data.get('status', '').strip()
-    date_completed = data.get('date_completed')
+    data             = request.get_json(silent=True) or {}
+    status           = data.get('status', '').strip()
+    date_completed   = data.get('date_completed')
+    completed_fully  = bool(data.get('completed_fully', False))
     if status not in ('completed', 'playing', 'want_to_play', 'dropped'):
         return jsonify({'error': 'Invalid status'}), 400
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
-        'UPDATE games SET status=?, date_completed=? WHERE id=?',
-        (status, date_completed or None, game_id)
+        'UPDATE games SET status=?, date_completed=?, completed_fully=? WHERE id=?',
+        (status, date_completed or None, 1 if completed_fully else 0, game_id)
     )
     conn.commit()
     conn.close()
@@ -688,6 +689,8 @@ def books_search():
         return jsonify(search_book(query))
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'error': f'Search failed: {e}'}), 500
 
 
 @app.route('/books/add', methods=['POST'])
