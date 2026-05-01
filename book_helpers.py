@@ -1,4 +1,6 @@
+import csv
 import os
+import re
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -140,6 +142,102 @@ def add_book(query, status='read', date_read=None, db_path='tmdb_analytics.db'):
     selected = results[idx - 1]
     print(f'\nAdding: {selected["title"]}')
     return fetch_and_store_book(selected['id'], db_path, status=status, date_read=date_read)
+
+
+def import_books_from_csv(csv_path, db_path='tmdb_analytics.db'):
+    """
+    Import read books from a CSV with 'Date', 'Title', 'Author' columns.
+    Searches Google Books matching both title and author for accuracy.
+    Missing years are inferred from surrounding rows.
+    """
+    raw_entries = []
+    with open(csv_path, newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            title  = row.get('Title',  '').strip()
+            author = row.get('Author', '').strip()
+            if title:
+                raw_entries.append({
+                    'title':    title,
+                    'author':   author,
+                    'raw_date': row.get('Date', '').strip(),
+                })
+
+    # Parse dates, inferring year from surrounding rows when missing
+    entries, skipped = [], []
+    prev_date = None
+    for entry in raw_entries:
+        raw = entry['raw_date']
+        parsed = None
+        for fmt in ('%m/%d/%Y', '%m/%d/%y'):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                break
+            except ValueError:
+                pass
+        if parsed is None:
+            try:
+                md = datetime.strptime(raw, '%m/%d')
+                if prev_date is None:
+                    year = datetime.now(timezone.utc).year
+                elif md.month < prev_date.month:
+                    year = prev_date.year + 1
+                else:
+                    year = prev_date.year
+                parsed = md.replace(year=year)
+            except ValueError:
+                skipped.append((entry['title'], raw))
+                continue
+        prev_date = parsed
+        entries.append({**entry, 'date': parsed})
+
+    print(f'Found {len(entries)} books to import.')
+    if skipped:
+        print(f'Skipping {len(skipped)} unparseable dates:')
+        for t, d in skipped:
+            print(f'  - "{t}": "{d}"')
+    print()
+
+    succeeded, failed = [], []
+    for entry in entries:
+        title     = entry['title']
+        author    = entry['author']
+        date_str  = entry['date'].strftime('%Y-%m-%d')
+        # Use only the first author for the query (handles "A & B", "A, B" formats)
+        first_author = re.split(r'[,&]', author)[0].strip()
+
+        try:
+            # Try title + author search first for accuracy
+            matched = None
+            for query in [
+                f'intitle:"{title}" inauthor:"{first_author}"',
+                f'intitle:"{title}"',
+            ]:
+                params = {'q': query, 'maxResults': 1, 'key': BOOKS_API_KEY}
+                resp = requests.get(BOOKS_URL, params=params, timeout=15)
+                resp.raise_for_status()
+                items = resp.json().get('items', [])
+                if items:
+                    matched = _parse_volume(items[0])
+                    break
+                time.sleep(0.3)
+
+            if not matched:
+                raise ValueError('No match found')
+
+            result_authors = matched['authors'] or ''
+            print(f'  "{title}" → {matched["title"]} by {result_authors} ({(matched["published_date"] or "")[:4]})')
+            fetch_and_store_book(matched['id'], db_path, status='read', date_read=date_str)
+            succeeded.append(title)
+        except Exception as e:
+            print(f'  ✗ "{title}" — {e}')
+            failed.append((title, str(e)))
+        time.sleep(0.3)
+
+    print(f'\nImport complete: {len(succeeded)} succeeded, {len(failed)} failed.')
+    if failed:
+        print('Failed titles:')
+        for title, err in failed:
+            print(f'  - "{title}": {err}')
 
 
 def view_books(db_path='tmdb_analytics.db'):
