@@ -109,8 +109,13 @@ def fetch_and_store_book(book_id, db_path='tmdb_analytics.db', status='read', da
     ))
 
     cur.execute('DELETE FROM book_genres WHERE book_id=?', (b['id'],))
+    seen = set()
     for cat in b['categories']:
-        cur.execute('INSERT INTO book_genres (book_id, name) VALUES (?,?)', (b['id'], cat))
+        for part in cat.split(' / '):
+            part = part.strip()
+            if part and part not in seen:
+                cur.execute('INSERT INTO book_genres (book_id, name) VALUES (?,?)', (b['id'], part))
+                seen.add(part)
 
     conn.commit()
     conn.close()
@@ -238,6 +243,32 @@ def import_books_from_csv(csv_path, db_path='tmdb_analytics.db'):
         print('Failed titles:')
         for title, err in failed:
             print(f'  - "{title}": {err}')
+
+
+def fix_book_genres(db_path='tmdb_analytics.db'):
+    """Split any stored hierarchical genre paths (e.g. 'Fiction / Sci-Fi') into individual tags."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    nested = cur.execute(
+        "SELECT DISTINCT book_id, name FROM book_genres WHERE name LIKE '% / %'"
+    ).fetchall()
+    if not nested:
+        print('No nested genres found — nothing to fix.')
+        conn.close()
+        return
+    affected_books = len(set(r[0] for r in nested))
+    for book_id, name in nested:
+        parts = [p.strip() for p in name.split(' / ') if p.strip()]
+        cur.execute('DELETE FROM book_genres WHERE book_id=? AND name=?', (book_id, name))
+        for part in parts:
+            exists = cur.execute(
+                'SELECT 1 FROM book_genres WHERE book_id=? AND name=?', (book_id, part)
+            ).fetchone()
+            if not exists:
+                cur.execute('INSERT INTO book_genres (book_id, name) VALUES (?,?)', (book_id, part))
+    conn.commit()
+    conn.close()
+    print(f'Fixed {len(nested)} nested entries across {affected_books} books.')
 
 
 def view_books(db_path='tmdb_analytics.db'):
