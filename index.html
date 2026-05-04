@@ -1160,7 +1160,8 @@
       </div>
       ${barsHTML('Top Authors',     s.top_authors, '#e50914', 'author', 'bookDrillRow')}
       ${barsHTML('Genres',          s.top_genres,  '#4caf50', 'genre',  'bookDrillRow')}
-      ${barsHTML('Books Read by Year', s.by_year,  '#ff9800', 'year',   'bookDrillRow')}
+      ${barsHTML('Books Read by Year',  s.by_year,       '#ff9800', 'year', 'bookDrillRow')}
+      ${barsHTML('Pages Read by Year', s.pages_by_year, '#7c5cbf', 'year', 'bookDrillRow')}
       ${s.status_breakdown.length > 1 ? (() => {
         const total = s.status_breakdown.reduce((a,b) => a + b.count, 0);
         return `<div class="stat-section"><h3>Library Breakdown</h3>

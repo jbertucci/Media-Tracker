@@ -788,6 +788,12 @@ def books_stats():
         GROUP BY label ORDER BY label
     ''').fetchall()
 
+    pages_by_year = cur.execute('''
+        SELECT SUBSTR(date_read, 1, 4) as label, SUM(page_count) as count
+        FROM books WHERE date_read IS NOT NULL AND status="read" AND page_count IS NOT NULL
+        GROUP BY label ORDER BY label
+    ''').fetchall()
+
     status_data = [
         {'label': 'Read',         'count': summary['read_count'] or 0},
         {'label': 'Reading',      'count': summary['reading']    or 0},
@@ -803,6 +809,7 @@ def books_stats():
         'top_authors':      [dict(r) for r in top_authors],
         'top_genres':       [dict(r) for r in top_genres],
         'by_year':          [dict(r) for r in by_year],
+        'pages_by_year':    [dict(r) for r in pages_by_year],
         'status_breakdown': [s for s in status_data if s['count'] > 0],
     })
 
