@@ -844,13 +844,14 @@
   function openStatusPicker(type, id, name, currentStatus, currentDate) {
     statusPickerTarget = { type, id };
     document.getElementById('status-picker-title').textContent = name;
-    const opts = type === 'movie' ? MOVIE_STATUSES : GAME_STATUSES;
+    const opts = type === 'movie' ? MOVIE_STATUSES : type === 'book' ? BOOK_STATUSES : GAME_STATUSES;
     document.querySelector('.status-options').innerHTML = opts.map(o =>
       `<div class="status-opt${o.value === currentStatus ? ' selected' : ''}" data-value="${o.value}" onclick="selectStatus(this)">${o.label}</div>`
     ).join('');
     const dateEl = document.getElementById('status-picker-date');
     dateEl.value = currentDate ? currentDate.slice(0, 10) : today();
-    dateEl.style.display = DATE_STATUSES.includes(currentStatus) ? 'block' : 'none';
+    const bookDate = ['read', 'dropped'];
+    dateEl.style.display = (type === 'book' ? bookDate : DATE_STATUSES).includes(currentStatus) ? 'block' : 'none';
     document.getElementById('status-picker-100').checked = false;
     document.getElementById('status-picker-100-label').style.display =
       statusPickerTarget.type === 'game' && currentStatus === 'completed' ? 'flex' : 'none';
@@ -860,8 +861,11 @@
   function selectStatus(el) {
     document.querySelectorAll('.status-opt').forEach(o => o.classList.remove('selected'));
     el.classList.add('selected');
-    document.getElementById('status-picker-date').style.display =
-      DATE_STATUSES.includes(el.dataset.value) ? 'block' : 'none';
+    const bookDate = ['read', 'dropped'];
+    const showDate = statusPickerTarget?.type === 'book'
+      ? bookDate.includes(el.dataset.value)
+      : DATE_STATUSES.includes(el.dataset.value);
+    document.getElementById('status-picker-date').style.display = showDate ? 'block' : 'none';
     document.getElementById('status-picker-100-label').style.display =
       statusPickerTarget?.type === 'game' && el.dataset.value === 'completed' ? 'flex' : 'none';
   }
@@ -873,8 +877,10 @@
     const dateEl = document.getElementById('status-picker-date');
     const date_completed = dateEl.style.display !== 'none' ? dateEl.value : null;
     const completed_fully = document.getElementById('status-picker-100')?.checked || false;
-    const body = type === 'movie' ? { status }
-               : { status, date_completed, ...(status === 'completed' ? { completed_fully } : {}) };
+    let body;
+    if (type === 'movie')     body = { status };
+    else if (type === 'book') body = { status, date_read: date_completed };
+    else                      body = { status, date_completed, ...(status === 'completed' ? { completed_fully } : {}) };
     try {
       await apiFetch(`/${type}s/${id}/status`, {
         method: 'POST',
@@ -883,7 +889,12 @@
       });
       closeStatusPicker();
       if (type === 'game') loadGameList(currentGameFilter);
-      else if (type === 'book') loadBookList(currentBookFilter);
+      else if (type === 'book') {
+        currentBookFilter = '';
+        document.querySelectorAll('#book-list-pane .status-pill').forEach(p => p.classList.remove('active'));
+        document.querySelector('#book-list-pane .status-pill[data-status=""]')?.classList.add('active');
+        loadBookList('');
+      }
       else loadMovies(currentMovieFilter);
       toast('Status updated', 'success');
     } catch (e) {
@@ -901,7 +912,8 @@
   }
 
   function openStatusPickerEl(el, type) {
-    openStatusPicker(type, parseInt(el.dataset.id), el.dataset.title, el.dataset.status, el.dataset.date);
+    const id = type === 'book' ? el.dataset.id : parseInt(el.dataset.id);
+    openStatusPicker(type, id, el.dataset.title, el.dataset.status, el.dataset.date);
   }
 
   // ── Notes ─────────────────────────────────────────────────────────────────
@@ -1083,7 +1095,8 @@
             <div class="gi-title">${esc(b.title)}${b.has_notes ? '<span class="note-dot"></span>' : ''}</div>
             <div class="gi-meta">
               ${esc(b.authors || '—')}
-              &middot; <span onclick="event.stopPropagation();openBookStatusPicker('${b.id}','${esc(b.title)}','${b.status}','${b.date_read||''}')"
+              &middot; <span onclick="event.stopPropagation();openStatusPickerEl(this,'book')"
+                             data-id="${b.id}" data-title="${esc(b.title)}" data-status="${b.status}" data-date="${b.date_read||''}"
                              style="cursor:pointer">${bookStatusBadge(b.status)}</span>
               ${b.date_read ? ' &middot; ' + b.date_read.slice(0,10) : ''}
             </div>
