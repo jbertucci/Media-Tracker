@@ -1158,8 +1158,32 @@
         <div class="stat-card"><div class="stat-num">${s.summary.read}</div><div class="stat-label">Read</div></div>
         <div class="stat-card"><div class="stat-num">${s.summary.total_pages.toLocaleString()}</div><div class="stat-label">Pages</div></div>
       </div>
-      ${barsHTML('Top Authors',     s.top_authors, '#e50914', 'author', 'bookDrillRow')}
-      ${barsHTML('Genres',          s.top_genres,  '#4caf50', 'genre',  'bookDrillRow')}
+      ${barsHTML('Top Authors', s.top_authors, '#e50914', 'author', 'bookDrillRow')}
+
+      ${(() => {
+        const total = s.fiction_split.reduce((a, b) => a + b.count, 0);
+        if (!total) return '';
+        const colors = { Fiction: '#5b8dee', 'Non-Fiction': '#ff9800' };
+        return `<div class="stat-section"><h3>Fiction vs Non-Fiction</h3>
+          <div class="split-bar">${s.fiction_split.map(i => {
+            const pct = (i.count / total * 100).toFixed(1);
+            return `<div class="split-seg" style="width:0;background:${colors[i.label]}" data-w="${pct}%"
+                        title="${esc(i.label)}: ${pct}%"></div>`;
+          }).join('')}</div>
+          <div class="split-legend">${s.fiction_split.map(i => {
+            const pct = (i.count / total * 100).toFixed(0);
+            const val = i.label === 'Fiction' ? 'true' : 'false';
+            return `<div class="legend-item clickable" data-drill-type="fiction" data-drill-val="${val}"
+                        onclick="bookDrillRow(this)">
+              <span class="legend-dot" style="background:${colors[i.label]}"></span>
+              <span>${esc(i.label)} ${pct}%</span>
+            </div>`;
+          }).join('')}</div>
+        </div>`;
+      })()}
+
+      ${barsHTML('Fiction Genres',     s.fiction_genres,    '#5b8dee', 'genre', 'bookDrillRow')}
+      ${barsHTML('Non-Fiction Genres', s.nonfiction_genres, '#ff9800', 'genre', 'bookDrillRow')}
       ${barsHTML('Books Read by Year',  s.by_year,       '#ff9800', 'year', 'bookDrillRow')}
       ${barsHTML('Pages Read by Year', s.pages_by_year, '#7c5cbf', 'year', 'bookDrillRow')}
       ${s.status_breakdown.length > 1 ? (() => {

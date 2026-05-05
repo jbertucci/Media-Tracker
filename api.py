@@ -782,6 +782,36 @@ def books_stats():
         GROUP BY name ORDER BY count DESC LIMIT 8
     ''').fetchall()
 
+    FICTION_IDS  = f"(SELECT DISTINCT book_id FROM book_genres WHERE name LIKE '%Fiction%')"
+    NONFICT_IDS  = f"(SELECT DISTINCT b.id FROM books b WHERE b.id NOT IN {FICTION_IDS})"
+
+    fiction_count = cur.execute(f'''
+        SELECT COUNT(DISTINCT b.id) as n FROM books b
+        WHERE b.id IN {FICTION_IDS} AND {WR}
+    ''').fetchone()['n'] or 0
+
+    nonfiction_count = cur.execute(f'''
+        SELECT COUNT(DISTINCT b.id) as n FROM books b
+        WHERE b.id IN {NONFICT_IDS} AND {WR}
+    ''').fetchone()['n'] or 0
+
+    fiction_genres = cur.execute(f'''
+        SELECT g.name, COUNT(DISTINCT g.book_id) as count
+        FROM book_genres g JOIN books b ON g.book_id = b.id
+        WHERE b.id IN {FICTION_IDS} AND {WR}
+          AND g.name NOT LIKE '%Fiction%'
+        GROUP BY g.name ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
+    nonfiction_genres = cur.execute(f'''
+        SELECT g.name, COUNT(DISTINCT g.book_id) as count
+        FROM book_genres g JOIN books b ON g.book_id = b.id
+        WHERE b.id IN {NONFICT_IDS} AND {WR}
+          AND LOWER(g.name) NOT LIKE '%nonfiction%'
+          AND LOWER(g.name) NOT LIKE '%non-fiction%'
+        GROUP BY g.name ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
     by_year = cur.execute('''
         SELECT SUBSTR(date_read, 1, 4) as label, COUNT(*) as count
         FROM books WHERE date_read IS NOT NULL AND status="read"
@@ -808,6 +838,9 @@ def books_stats():
         },
         'top_authors':      [dict(r) for r in top_authors],
         'top_genres':       [dict(r) for r in top_genres],
+        'fiction_split':    [{'label': 'Fiction', 'count': fiction_count}, {'label': 'Non-Fiction', 'count': nonfiction_count}],
+        'fiction_genres':   [dict(r) for r in fiction_genres],
+        'nonfiction_genres':[dict(r) for r in nonfiction_genres],
         'by_year':          [dict(r) for r in by_year],
         'pages_by_year':    [dict(r) for r in pages_by_year],
         'status_breakdown': [s for s in status_data if s['count'] > 0],
@@ -843,6 +876,19 @@ def books_stats_titles():
             'SELECT id, title, authors, published_date, cover_url, status, date_read FROM books '
             'WHERE status=? ORDER BY date_read DESC', (value,)
         ).fetchall()
+    elif filter_type == 'fiction':
+        if value == 'true':
+            rows = cur.execute(
+                'SELECT DISTINCT b.id, b.title, b.authors, b.published_date, b.cover_url, b.status, b.date_read '
+                'FROM books b JOIN book_genres g ON b.id=g.book_id '
+                "WHERE g.name LIKE '%Fiction%' ORDER BY b.date_read DESC"
+            ).fetchall()
+        else:
+            rows = cur.execute(
+                'SELECT id, title, authors, published_date, cover_url, status, date_read FROM books '
+                "WHERE id NOT IN (SELECT DISTINCT book_id FROM book_genres WHERE name LIKE '%Fiction%') "
+                'ORDER BY date_read DESC'
+            ).fetchall()
     else:
         conn.close()
         return jsonify({'error': f'Unknown type: {filter_type}'}), 400
