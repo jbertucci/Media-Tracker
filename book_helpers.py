@@ -65,8 +65,10 @@ def _parse_volume(v):
 
 
 def search_book(query, retries=3):
-    """Search Google Books, return top 5 results. Retries on transient failures."""
-    params = {'q': query, 'maxResults': 5, 'key': BOOKS_API_KEY}
+    """Search Google Books, return top 5 results. Retries on transient failures.
+    If query is all digits, treats it as an ISBN lookup."""
+    q = f'isbn:{query}' if query.isdigit() else query
+    params = {'q': q, 'maxResults': 5, 'key': BOOKS_API_KEY}
     last_err = None
     for attempt in range(retries):
         try:
