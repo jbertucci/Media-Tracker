@@ -1186,26 +1186,6 @@
       ${barsHTML('Non-Fiction Genres', s.nonfiction_genres, '#ff9800', 'genre', 'bookDrillRow')}
       ${barsHTML('Books Read by Year',  s.by_year,       '#ff9800', 'year', 'bookDrillRow')}
       ${barsHTML('Pages Read by Year', s.pages_by_year, '#7c5cbf', 'year', 'bookDrillRow')}
-      ${s.status_breakdown.length > 1 ? (() => {
-        const total = s.status_breakdown.reduce((a,b) => a + b.count, 0);
-        return `<div class="stat-section"><h3>Library Breakdown</h3>
-          <div class="split-bar">${s.status_breakdown.map(i => {
-            const pct = (i.count/total*100).toFixed(1);
-            const c   = statusColors[i.label] || '#888';
-            return `<div class="split-seg" style="width:0;background:${c}" data-w="${pct}%"
-                        title="${esc(i.label)}: ${pct}%"></div>`;
-          }).join('')}</div>
-          <div class="split-legend">${s.status_breakdown.map(i => {
-            const pct = (i.count/total*100).toFixed(0);
-            const c   = statusColors[i.label] || '#888';
-            const apiVal = i.label.toLowerCase();
-            return `<div class="legend-item clickable" data-drill-type="status" data-drill-val="${apiVal}"
-                        onclick="bookDrillRow(this)">
-              <span class="legend-dot" style="background:${c}"></span><span>${esc(i.label)} ${pct}%</span>
-            </div>`;
-          }).join('')}</div>
-        </div>`;
-      })() : ''}
     `;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       el.querySelectorAll('[data-w]').forEach(b => { b.style.width = b.dataset.w; });

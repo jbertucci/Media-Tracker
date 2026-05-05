@@ -777,7 +777,7 @@ def books_stats():
 
     top_genres = cur.execute(f'''
         SELECT name, COUNT(DISTINCT book_id) as count FROM book_genres
-        WHERE name IS NOT NULL
+        WHERE name IS NOT NULL AND name != 'General'
           AND book_id IN (SELECT id FROM books WHERE {WR})
         GROUP BY name ORDER BY count DESC LIMIT 8
     ''').fetchall()
@@ -799,7 +799,7 @@ def books_stats():
         SELECT g.name, COUNT(DISTINCT g.book_id) as count
         FROM book_genres g JOIN books b ON g.book_id = b.id
         WHERE b.id IN {FICTION_IDS} AND {WR}
-          AND g.name NOT LIKE '%Fiction%'
+          AND g.name NOT LIKE '%Fiction%' AND g.name != 'General'
         GROUP BY g.name ORDER BY count DESC LIMIT 8
     ''').fetchall()
 
@@ -809,6 +809,7 @@ def books_stats():
         WHERE b.id IN {NONFICT_IDS} AND {WR}
           AND LOWER(g.name) NOT LIKE '%nonfiction%'
           AND LOWER(g.name) NOT LIKE '%non-fiction%'
+          AND g.name != 'General'
         GROUP BY g.name ORDER BY count DESC LIMIT 8
     ''').fetchall()
 
