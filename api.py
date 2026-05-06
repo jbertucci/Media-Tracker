@@ -23,6 +23,11 @@ from book_helpers import (
     search_book,
     setup_books_db,
 )
+from tv_helpers import (
+    fetch_and_store_show,
+    search_show,
+    setup_tv_db,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'tmdb_analytics.db')
@@ -88,6 +93,7 @@ def _ensure_game_battle_table():
 
 _ensure_game_battle_table()
 setup_books_db(DB_PATH)
+setup_tv_db(DB_PATH)
 
 
 def _auth():
@@ -953,6 +959,269 @@ def books_remove(book_id):
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'removed': row[0]})
+
+
+# ── TV routes ─────────────────────────────────────────────────────────────────
+
+@app.route('/shows/search')
+def shows_search():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    title = request.args.get('title', '').strip()
+    if not title:
+        return jsonify({'error': 'title is required'}), 400
+    try:
+        results = search_show(title)
+        return jsonify([{
+            'id':             r['id'],
+            'name':           r['name'],
+            'year':           r.get('first_air_date', '')[:4] or None,
+            'poster_path':    r.get('poster_path'),
+            'overview':       r.get('overview', ''),
+        } for r in results])
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+
+
+@app.route('/shows/add', methods=['POST'])
+def shows_add():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data         = request.get_json(silent=True) or {}
+    tmdb_id      = data.get('tmdb_id')
+    watch_status = data.get('watch_status', 'watching')
+    if not tmdb_id:
+        return jsonify({'error': 'tmdb_id is required'}), 400
+    try:
+        fetch_and_store_show(tmdb_id, DB_PATH, watch_status=watch_status)
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/shows')
+def shows_list():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    status_filter = request.args.get('status', '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    base = '''SELECT id, name, first_air_date, poster_path, watch_status, tmdb_status,
+                     number_of_seasons,
+                     CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes
+              FROM tv_shows'''
+    order = 'ORDER BY CASE WHEN watch_status="watching" THEN 0 ELSE 1 END, datetime_added DESC'
+    if status_filter:
+        rows = cur.execute(f'{base} WHERE watch_status=? {order}', (status_filter,)).fetchall()
+    else:
+        rows = cur.execute(f'{base} {order}').fetchall()
+    result = []
+    for r in rows:
+        seasons_done = cur.execute(
+            'SELECT COUNT(*) as n FROM tv_seasons WHERE show_id=? AND date_completed IS NOT NULL',
+            (r['id'],)
+        ).fetchone()['n']
+        network = cur.execute(
+            'SELECT name FROM tv_show_networks WHERE show_id=? LIMIT 1', (r['id'],)
+        ).fetchone()
+        result.append({
+            'id':               r['id'],
+            'name':             r['name'],
+            'year':             r['first_air_date'][:4] if r['first_air_date'] else None,
+            'poster_path':      r['poster_path'],
+            'watch_status':     r['watch_status'],
+            'tmdb_status':      r['tmdb_status'],
+            'number_of_seasons': r['number_of_seasons'] or 0,
+            'seasons_done':     seasons_done,
+            'network':          network['name'] if network else None,
+            'has_notes':        bool(r['has_notes']),
+        })
+    conn.close()
+    return jsonify(result)
+
+
+@app.route('/shows/<int:show_id>/seasons')
+def show_seasons(show_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        'SELECT season_number, season_name, episode_count, air_date, date_completed '
+        'FROM tv_seasons WHERE show_id=? ORDER BY season_number',
+        (show_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/shows/<int:show_id>/season/<int:season_number>', methods=['POST', 'DELETE'])
+def show_season_complete(show_id, season_number):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    if request.method == 'DELETE':
+        conn.execute(
+            'UPDATE tv_seasons SET date_completed=NULL WHERE show_id=? AND season_number=?',
+            (show_id, season_number)
+        )
+    else:
+        date_completed = (request.get_json(silent=True) or {}).get('date_completed') or \
+                         datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            'UPDATE tv_seasons SET date_completed=? WHERE show_id=? AND season_number=?',
+            (date_completed, show_id, season_number)
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/shows/<int:show_id>/status', methods=['POST'])
+def shows_update_status(show_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    status = (request.get_json(silent=True) or {}).get('status', '').strip()
+    if status not in ('watching', 'completed', 'want_to_watch', 'dropped'):
+        return jsonify({'error': 'Invalid status'}), 400
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('UPDATE tv_shows SET watch_status=? WHERE id=?', (status, show_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/shows/<int:show_id>/notes', methods=['GET', 'POST'])
+def show_notes(show_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    if request.method == 'POST':
+        notes = (request.get_json(silent=True) or {}).get('notes', '')
+        conn.execute('UPDATE tv_shows SET notes=? WHERE id=?', (notes, show_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    row = conn.execute('SELECT notes FROM tv_shows WHERE id=?', (show_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'notes': row[0] or ''})
+
+
+@app.route('/shows/<int:show_id>', methods=['DELETE'])
+def shows_remove(show_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute('SELECT name FROM tv_shows WHERE id=?', (show_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Show not found'}), 404
+    for table in ('tv_show_genres', 'tv_show_networks', 'tv_show_creators', 'tv_seasons'):
+        conn.execute(f'DELETE FROM {table} WHERE show_id=?', (show_id,))
+    conn.execute('DELETE FROM tv_shows WHERE id=?', (show_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'removed': row[0]})
+
+
+@app.route('/shows/stats')
+def shows_stats():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    WW = "watch_status != 'want_to_watch'"
+
+    summary = cur.execute(f'''
+        SELECT COUNT(*) as total,
+               SUM(CASE WHEN watch_status="completed" THEN 1 ELSE 0 END) as completed,
+               SUM(CASE WHEN watch_status="watching"  THEN 1 ELSE 0 END) as watching,
+               SUM(CASE WHEN watch_status="dropped"   THEN 1 ELSE 0 END) as dropped
+        FROM tv_shows WHERE {WW}
+    ''').fetchone()
+
+    seasons_done = cur.execute(
+        'SELECT COUNT(*) as n FROM tv_seasons s '
+        'JOIN tv_shows t ON s.show_id=t.id '
+        f'WHERE s.date_completed IS NOT NULL AND t.{WW}'
+    ).fetchone()['n']
+
+    top_genres = cur.execute(f'''
+        SELECT g.name, COUNT(DISTINCT g.show_id) as count FROM tv_show_genres g
+        JOIN tv_shows t ON g.show_id=t.id WHERE t.{WW}
+        GROUP BY g.name ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
+    top_networks = cur.execute(f'''
+        SELECT n.name, COUNT(DISTINCT n.show_id) as count FROM tv_show_networks n
+        JOIN tv_shows t ON n.show_id=t.id WHERE t.{WW}
+        GROUP BY n.name ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
+    top_creators = cur.execute(f'''
+        SELECT c.name, COUNT(DISTINCT c.show_id) as count FROM tv_show_creators c
+        JOIN tv_shows t ON c.show_id=t.id WHERE t.{WW}
+        GROUP BY c.name ORDER BY count DESC LIMIT 5
+    ''').fetchall()
+
+    seasons_by_year = cur.execute(
+        'SELECT SUBSTR(s.date_completed,1,4) as label, COUNT(*) as count FROM tv_seasons s '
+        'JOIN tv_shows t ON s.show_id=t.id '
+        f'WHERE s.date_completed IS NOT NULL AND t.{WW} '
+        'GROUP BY label ORDER BY label'
+    ).fetchall()
+
+    conn.close()
+    status_data = [
+        {'label': 'Watching',  'count': summary['watching']  or 0},
+        {'label': 'Completed', 'count': summary['completed'] or 0},
+        {'label': 'Dropped',   'count': summary['dropped']   or 0},
+    ]
+    return jsonify({
+        'summary':         {'total': summary['total'] or 0, 'completed': summary['completed'] or 0, 'seasons_done': seasons_done},
+        'top_genres':      [dict(r) for r in top_genres],
+        'top_networks':    [dict(r) for r in top_networks],
+        'top_creators':    [dict(r) for r in top_creators],
+        'seasons_by_year': [dict(r) for r in seasons_by_year],
+        'status_breakdown': [s for s in status_data if s['count'] > 0],
+    })
+
+
+@app.route('/shows/stats/titles')
+def shows_stats_titles():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    filter_type = request.args.get('type', '').strip()
+    value       = request.args.get('value', '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    base = 'SELECT DISTINCT t.id, t.name, t.first_air_date, t.poster_path, t.watch_status, t.number_of_seasons FROM tv_shows t'
+    if filter_type == 'genre':
+        rows = cur.execute(f'{base} JOIN tv_show_genres g ON t.id=g.show_id WHERE g.name=? ORDER BY t.name', (value,)).fetchall()
+    elif filter_type == 'network':
+        rows = cur.execute(f'{base} JOIN tv_show_networks n ON t.id=n.show_id WHERE n.name=? ORDER BY t.name', (value,)).fetchall()
+    elif filter_type == 'creator':
+        rows = cur.execute(f'{base} JOIN tv_show_creators c ON t.id=c.show_id WHERE c.name=? ORDER BY t.name', (value,)).fetchall()
+    elif filter_type == 'year':
+        rows = cur.execute(f'{base} WHERE SUBSTR(t.first_air_date,1,4)=? ORDER BY t.name', (value,)).fetchall()
+    elif filter_type == 'status':
+        rows = cur.execute(f'{base} WHERE t.watch_status=? ORDER BY t.name', (value,)).fetchall()
+    else:
+        conn.close()
+        return jsonify({'error': f'Unknown type: {filter_type}'}), 400
+    conn.close()
+    return jsonify([{
+        'name':             r['name'],
+        'year':             r['first_air_date'][:4] if r['first_air_date'] else None,
+        'poster_path':      r['poster_path'],
+        'watch_status':     r['watch_status'],
+        'number_of_seasons': r['number_of_seasons'],
+    } for r in rows])
 
 
 # ── Notes ─────────────────────────────────────────────────────────────────────

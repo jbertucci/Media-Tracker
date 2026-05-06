@@ -335,6 +335,28 @@
     #notes-textarea:focus { border-color:var(--accent); }
     .notes-save-btn { margin-top:10px; flex-shrink:0; }
 
+    /* ── TV Shows ── */
+    .show-item { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; margin-bottom:8px; display:flex; align-items:center; gap:10px; }
+    .show-item .si-info { flex:1; min-width:0; cursor:pointer; }
+    .si-title { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .si-meta { color:var(--muted); font-size:0.78rem; margin-top:3px; }
+    .season-progress { font-size:0.78rem; color:var(--muted); cursor:pointer; white-space:nowrap; flex-shrink:0; padding:4px 8px; background:var(--surface2); border-radius:20px; border:1px solid var(--border); }
+    .season-progress:hover { border-color:var(--accent); color:var(--text); }
+    .season-item { display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
+    .season-item:last-child { border-bottom:none; }
+    .si-season-info { flex:1; min-width:0; }
+    .si-season-title { font-weight:600; font-size:0.88rem; }
+    .si-season-meta { font-size:0.75rem; color:var(--muted); }
+    .season-done-date { font-size:0.78rem; color:var(--green); white-space:nowrap; }
+    .season-modal .modal { max-height:85dvh; display:flex; flex-direction:column; }
+    .season-modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-shrink:0; }
+    .season-modal-header h2 { font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%; }
+    #season-list-body { overflow-y:auto; flex:1; }
+    .badge-watching      { background:#1a2a4a; color:#5b8dee; }
+    .badge-completed     { background:#1b3a1f; color:#4caf50; }
+    .badge-want_to_watch { background:#3a2a0a; color:#ff9800; }
+    .badge-dropped       { background:#2a1a1a; color:#888; }
+
     .book-cover-lg { width:54px; height:72px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
     .book-cover-sm { width:40px; height:53px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
     .book-cover-xs { width:33px; height:44px; object-fit:cover; border-radius:3px; flex-shrink:0; background:var(--surface2); }
@@ -359,6 +381,7 @@
   <div class="tab active" onclick="switchTab('movies')">Movies</div>
   <div class="tab" onclick="switchTab('games')">Games</div>
   <div class="tab" onclick="switchTab('books')">Books</div>
+  <div class="tab" onclick="switchTab('tv')">TV</div>
 </div>
 
 <main>
@@ -387,6 +410,35 @@
     </div>
     <div id="movie-stats-pane" style="display:none">
       <div id="stats-content"><div class="loading">Loading&hellip;</div></div>
+    </div>
+  </div>
+
+  <div id="tv-view" class="view">
+    <div class="game-subnav">
+      <button id="tvsub-search" class="active" onclick="setTVSubview('search')">Search</button>
+      <button id="tvsub-list"   onclick="setTVSubview('list')">My Shows</button>
+      <button id="tvsub-stats"  onclick="setTVSubview('stats')">Stats</button>
+    </div>
+    <div id="tv-search-pane">
+      <div class="search-row">
+        <input type="text" id="tv-search-input" placeholder="Show title..."
+               onkeydown="if(event.key==='Enter') doTVSearch()">
+        <button id="tv-search-btn" onclick="doTVSearch()">Search</button>
+      </div>
+      <div id="tv-search-results"></div>
+    </div>
+    <div id="tv-list-pane" style="display:none">
+      <div class="status-pills">
+        <div class="status-pill active" data-status="" onclick="setShowFilter(this)">All</div>
+        <div class="status-pill" data-status="watching"      onclick="setShowFilter(this)">Watching</div>
+        <div class="status-pill" data-status="completed"     onclick="setShowFilter(this)">Completed</div>
+        <div class="status-pill" data-status="want_to_watch" onclick="setShowFilter(this)">Want to Watch</div>
+        <div class="status-pill" data-status="dropped"       onclick="setShowFilter(this)">Dropped</div>
+      </div>
+      <div id="show-list"></div>
+    </div>
+    <div id="tv-stats-pane" style="display:none">
+      <div id="tv-stats-content"><div class="loading">Loading&hellip;</div></div>
     </div>
   </div>
 
@@ -451,6 +503,16 @@
 </main>
 
 <div class="toast" id="toast"></div>
+
+<div class="modal-backdrop season-modal" id="season-modal" style="display:none" onclick="if(event.target===this)closeSeasonModal()">
+  <div class="modal">
+    <div class="season-modal-header">
+      <h2 id="season-modal-title"></h2>
+      <button class="btn-icon" onclick="closeSeasonModal()" style="font-size:1.3rem">&times;</button>
+    </div>
+    <div id="season-list-body"></div>
+  </div>
+</div>
 
 <div class="modal-backdrop status-picker-modal" id="status-picker-modal" style="display:none" onclick="if(event.target===this)closeStatusPicker()">
   <div class="modal">
@@ -548,7 +610,7 @@
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   function switchTab(tab) {
-    const tabs = ['movies', 'games', 'books'];
+    const tabs = ['movies', 'games', 'books', 'tv'];
     document.querySelectorAll('.tab').forEach((t, i) => {
       t.classList.toggle('active', tabs[i] === tab);
     });
@@ -844,7 +906,10 @@
   function openStatusPicker(type, id, name, currentStatus, currentDate) {
     statusPickerTarget = { type, id };
     document.getElementById('status-picker-title').textContent = name;
-    const opts = type === 'movie' ? MOVIE_STATUSES : type === 'book' ? BOOK_STATUSES : GAME_STATUSES;
+    const opts = type === 'movie' ? MOVIE_STATUSES
+               : type === 'book' ? BOOK_STATUSES
+               : type === 'show' ? SHOW_STATUSES
+               : GAME_STATUSES;
     document.querySelector('.status-options').innerHTML = opts.map(o =>
       `<div class="status-opt${o.value === currentStatus ? ' selected' : ''}" data-value="${o.value}" onclick="selectStatus(this)">${o.label}</div>`
     ).join('');
@@ -963,6 +1028,312 @@
   function closeNotes() {
     document.getElementById('notes-modal').style.display = 'none';
     notesTarget = null;
+  }
+
+  // ── TV Shows ──────────────────────────────────────────────────────────────
+
+  const SHOW_STATUSES = [
+    { value: 'watching',      label: 'Watching' },
+    { value: 'completed',     label: 'Completed' },
+    { value: 'want_to_watch', label: 'Want to Watch' },
+    { value: 'dropped',       label: 'Dropped' },
+  ];
+
+  function showStatusBadge(status) {
+    return `<span class="status-badge badge-${status}">${STATUS_LABELS[status] || status}</span>`;
+  }
+
+  function setTVSubview(view) {
+    ['search','list','stats'].forEach(v => {
+      document.getElementById(`tv-${v}-pane`).style.display = v === view ? 'block' : 'none';
+      document.getElementById(`tvsub-${v}`).classList.toggle('active', v === view);
+    });
+    if (view === 'list')  loadShowList('');
+    if (view === 'stats') loadTVStats();
+  }
+
+  let currentShowFilter = '';
+
+  function setShowFilter(pill) {
+    document.querySelectorAll('#tv-list-pane .status-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentShowFilter = pill.dataset.status;
+    loadShowList(currentShowFilter);
+  }
+
+  // Search
+  async function doTVSearch() {
+    const title = document.getElementById('tv-search-input').value.trim();
+    if (!title) return;
+    const btn = document.getElementById('tv-search-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    document.getElementById('tv-search-results').innerHTML = '';
+    try {
+      const results = await apiFetch(`/shows/search?title=${encodeURIComponent(title)}`);
+      if (!results.length) {
+        document.getElementById('tv-search-results').innerHTML = '<div class="empty">No results found.</div>';
+        return;
+      }
+      document.getElementById('tv-search-results').innerHTML = results.map(r => `
+        <div class="game-card">
+          <div class="game-card-body">
+            ${posterImg(r.poster_path, 'game-cover-lg', 'w92')}
+            <div class="game-card-info">
+              <div class="game-card-title">${esc(r.name)}</div>
+              <div class="game-card-meta">${r.year || 'Unknown year'}</div>
+              ${r.overview ? `<div class="game-card-overview">${esc(r.overview)}</div>` : ''}
+            </div>
+          </div>
+          <div class="game-card-actions">
+            <select id="tvstatus-${r.id}">
+              <option value="watching">Watching</option>
+              <option value="completed">Completed</option>
+              <option value="want_to_watch">Want to Watch</option>
+              <option value="dropped">Dropped</option>
+            </select>
+            <button data-id="${r.id}" data-name="${esc(r.name)}" onclick="addShowBtn(this)">Add</button>
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Search';
+    }
+  }
+
+  async function addShowBtn(btn) {
+    const id   = parseInt(btn.dataset.id);
+    const name = btn.dataset.name;
+    const watch_status = document.getElementById(`tvstatus-${id}`).value;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      await apiFetch('/shows/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmdb_id: id, watch_status }),
+      });
+      btn.textContent = '✓ Added';
+      btn.classList.add('btn-added');
+      toast(`Added: ${name}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Add';
+    }
+  }
+
+  // My Shows list
+  async function loadShowList(status = '') {
+    const el = document.getElementById('show-list');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      const shows = await apiFetch(`/shows${status ? '?status=' + status : ''}`);
+      if (!shows.length) {
+        el.innerHTML = '<div class="empty">No shows yet.</div>';
+        return;
+      }
+      el.innerHTML = shows.map(s => `
+        <div class="show-item" id="shi-${s.id}">
+          ${posterImg(s.poster_path, 'poster-sm', 'w92')}
+          <div class="si-info" data-type="show" data-id="${s.id}" data-title="${esc(s.name)}"
+               onclick="openNotesEl(this)">
+            <div class="si-title">${esc(s.name)}${s.has_notes ? '<span class="note-dot"></span>' : ''}</div>
+            <div class="si-meta">
+              ${s.network ? esc(s.network) + ' &middot; ' : ''}${s.year || '—'}
+              &middot; <span onclick="event.stopPropagation();openStatusPickerEl(this,'show')"
+                             data-id="${s.id}" data-title="${esc(s.name)}"
+                             data-status="${s.watch_status}" data-date=""
+                             style="cursor:pointer">${showStatusBadge(s.watch_status)}</span>
+            </div>
+          </div>
+          <span class="season-progress" onclick="openSeasonModal(${s.id},'${esc(s.name)}')"
+                title="Manage seasons">
+            ${s.seasons_done} / ${s.number_of_seasons}
+          </span>
+          <button class="btn-icon" data-id="${s.id}" data-name="${esc(s.name)}"
+                  onclick="removeShowBtn(this)" title="Remove">&times;</button>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function removeShowBtn(btn) {
+    removeShow(parseInt(btn.dataset.id), btn.dataset.name);
+  }
+
+  async function removeShow(id, name) {
+    if (!confirm(`Remove "${name}"?`)) return;
+    try {
+      await apiFetch(`/shows/${id}`, { method: 'DELETE' });
+      document.getElementById(`shi-${id}`)?.remove();
+      toast(`Removed: ${name}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  // Season modal
+  let currentSeasonShowId = null;
+
+  async function openSeasonModal(showId, name) {
+    currentSeasonShowId = showId;
+    document.getElementById('season-modal-title').textContent = name;
+    document.getElementById('season-list-body').innerHTML = '<div class="loading">Loading&hellip;</div>';
+    document.getElementById('season-modal').style.display = 'flex';
+    try {
+      const seasons = await apiFetch(`/shows/${showId}/seasons`);
+      renderSeasonList(showId, seasons);
+    } catch (e) {
+      toast(e.message, 'error');
+      closeSeasonModal();
+    }
+  }
+
+  function renderSeasonList(showId, seasons) {
+    document.getElementById('season-list-body').innerHTML = seasons.map(s => {
+      const label = esc(s.season_name || `Season ${s.season_number}`);
+      const meta  = [s.episode_count ? s.episode_count + ' eps' : '', s.air_date ? s.air_date.slice(0,4) : ''].filter(Boolean).join(' · ');
+      if (s.date_completed) {
+        return `<div class="season-item" id="sitem-${showId}-${s.season_number}">
+          <div class="si-season-info">
+            <div class="si-season-title">${label}</div>
+            <div class="si-season-meta">${meta}</div>
+          </div>
+          <span class="season-done-date">✓ ${s.date_completed.slice(0,10)}</span>
+          <button class="btn-icon" onclick="unmarkSeason(${showId},${s.season_number})" title="Unmark">&times;</button>
+        </div>`;
+      } else {
+        return `<div class="season-item" id="sitem-${showId}-${s.season_number}">
+          <div class="si-season-info">
+            <div class="si-season-title">${label}</div>
+            <div class="si-season-meta">${meta}</div>
+          </div>
+          <input type="date" id="sd-${showId}-${s.season_number}" value="${today()}"
+                 style="flex:1;max-width:130px;padding:5px 8px;font-size:0.8rem">
+          <button onclick="markSeasonDone(${showId},${s.season_number})"
+                  style="padding:6px 12px;font-size:0.8rem">Done</button>
+        </div>`;
+      }
+    }).join('');
+  }
+
+  async function markSeasonDone(showId, seasonNumber) {
+    const dateEl = document.getElementById(`sd-${showId}-${seasonNumber}`);
+    try {
+      await apiFetch(`/shows/${showId}/season/${seasonNumber}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date_completed: dateEl?.value || today() }),
+      });
+      const seasons = await apiFetch(`/shows/${showId}/seasons`);
+      renderSeasonList(showId, seasons);
+      // Refresh progress pill in list
+      refreshShowProgress(showId, seasons);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  async function unmarkSeason(showId, seasonNumber) {
+    try {
+      await apiFetch(`/shows/${showId}/season/${seasonNumber}`, { method: 'DELETE' });
+      const seasons = await apiFetch(`/shows/${showId}/seasons`);
+      renderSeasonList(showId, seasons);
+      refreshShowProgress(showId, seasons);
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  function refreshShowProgress(showId, seasons) {
+    const done  = seasons.filter(s => s.date_completed).length;
+    const total = seasons.length;
+    const pill  = document.querySelector(`#shi-${showId} .season-progress`);
+    if (pill) pill.textContent = `${done} / ${total}`;
+  }
+
+  function closeSeasonModal() {
+    document.getElementById('season-modal').style.display = 'none';
+    currentSeasonShowId = null;
+  }
+
+  // Stats
+  async function loadTVStats() {
+    const el = document.getElementById('tv-stats-content');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      renderTVStats(await apiFetch('/shows/stats'));
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function renderTVStats(s) {
+    const el = document.getElementById('tv-stats-content');
+    const statusColors = { Watching: '#5b8dee', Completed: '#4caf50', Dropped: '#888' };
+    el.innerHTML = `
+      <div class="stat-summary">
+        <div class="stat-card"><div class="stat-num">${s.summary.total}</div><div class="stat-label">Shows</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.completed}</div><div class="stat-label">Completed</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.seasons_done}</div><div class="stat-label">Seasons</div></div>
+      </div>
+      ${barsHTML('Top Creators',       s.top_creators,    '#e50914', 'creator', 'tvDrillRow')}
+      ${barsHTML('Networks',           s.top_networks,    '#5b8dee', 'network', 'tvDrillRow')}
+      ${barsHTML('Genres',             s.top_genres,      '#4caf50', 'genre',   'tvDrillRow')}
+      ${barsHTML('Seasons by Year',    s.seasons_by_year, '#ff9800', 'year',    'tvDrillRow')}
+      ${s.status_breakdown.length > 1 ? (() => {
+        const total = s.status_breakdown.reduce((a,b) => a + b.count, 0);
+        return `<div class="stat-section"><h3>Library Breakdown</h3>
+          <div class="split-bar">${s.status_breakdown.map(i => {
+            const pct = (i.count/total*100).toFixed(1);
+            const c   = statusColors[i.label] || '#888';
+            return `<div class="split-seg" style="width:0;background:${c}" data-w="${pct}%" title="${esc(i.label)}: ${pct}%"></div>`;
+          }).join('')}</div>
+          <div class="split-legend">${s.status_breakdown.map(i => {
+            const pct = (i.count/total*100).toFixed(0);
+            const c   = statusColors[i.label] || '#888';
+            const val = i.label.toLowerCase().replace(/ /g,'_');
+            return `<div class="legend-item clickable" data-drill-type="status" data-drill-val="${val}" onclick="tvDrillRow(this)">
+              <span class="legend-dot" style="background:${c}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
+          }).join('')}</div></div>`;
+      })() : ''}
+    `;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelectorAll('[data-w]').forEach(b => { b.style.width = b.dataset.w; });
+    }));
+  }
+
+  function tvDrillRow(el) { tvDrillDown(el.dataset.drillType, el.dataset.drillVal); }
+
+  async function tvDrillDown(type, value) {
+    document.getElementById('drill-title').textContent = value;
+    document.getElementById('drill-list').innerHTML = '<div class="loading">Loading&hellip;</div>';
+    document.getElementById('drill-modal').style.display = 'flex';
+    try {
+      const shows = await apiFetch(`/shows/stats/titles?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`);
+      if (!shows.length) {
+        document.getElementById('drill-list').innerHTML = '<div class="empty">No shows found.</div>';
+        return;
+      }
+      document.getElementById('drill-list').innerHTML = shows.map((s, i) => `
+        <div class="drill-item">
+          <span class="drill-num">${i + 1}</span>
+          ${posterImg(s.poster_path, 'poster-xs', 'w92')}
+          <div class="drill-info">
+            <div class="drill-title">${esc(s.name)}</div>
+            <div class="drill-meta">${s.year || '—'} &middot; ${showStatusBadge(s.watch_status)} &middot; ${s.number_of_seasons} seasons</div>
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      document.getElementById('drill-modal').style.display = 'none';
+    }
   }
 
   // ── Books ─────────────────────────────────────────────────────────────────
