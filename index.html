@@ -342,12 +342,16 @@
     .si-meta { color:var(--muted); font-size:0.78rem; margin-top:3px; }
     .season-progress { font-size:0.78rem; color:var(--muted); cursor:pointer; white-space:nowrap; flex-shrink:0; padding:4px 8px; background:var(--surface2); border-radius:20px; border:1px solid var(--border); }
     .season-progress:hover { border-color:var(--accent); color:var(--text); }
-    .season-item { display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
+    .season-item { padding:10px 0; border-bottom:1px solid var(--border); }
     .season-item:last-child { border-bottom:none; }
-    .si-season-info { flex:1 1 0; min-width:0; }
+    .si-season-row { display:flex; align-items:center; gap:8px; }
+    .si-season-info { flex:1; min-width:0; }
     .si-season-title { font-weight:600; font-size:0.88rem; }
     .si-season-meta { font-size:0.75rem; color:var(--muted); }
     .season-done-date { font-size:0.78rem; color:var(--green); white-space:nowrap; }
+    .si-season-controls { display:flex; align-items:center; gap:8px; margin-top:8px; }
+    .si-season-controls input[type=date] { flex:1; padding:5px 8px; font-size:0.8rem; margin-bottom:0; }
+    .si-season-controls button { width:auto !important; flex-shrink:0; padding:6px 14px; font-size:0.8rem; }
     .season-modal .modal { max-height:85dvh; display:flex; flex-direction:column; }
     .season-modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-shrink:0; }
     .season-modal-header h2 { font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%; }
@@ -1201,23 +1205,27 @@
       const meta  = [s.episode_count ? s.episode_count + ' eps' : '', s.air_date ? s.air_date.slice(0,4) : ''].filter(Boolean).join(' · ');
       if (s.date_completed) {
         return `<div class="season-item" id="sitem-${showId}-${s.season_number}">
-          <div class="si-season-info">
-            <div class="si-season-title">${label}</div>
-            <div class="si-season-meta">${meta}</div>
+          <div class="si-season-row">
+            <div class="si-season-info">
+              <div class="si-season-title">${label}</div>
+              <div class="si-season-meta">${meta}</div>
+            </div>
+            <span class="season-done-date">✓ ${s.date_completed.slice(0,10)}</span>
+            <button class="btn-icon" onclick="unmarkSeason(${showId},${s.season_number})" title="Unmark">&times;</button>
           </div>
-          <span class="season-done-date">✓ ${s.date_completed.slice(0,10)}</span>
-          <button class="btn-icon" onclick="unmarkSeason(${showId},${s.season_number})" title="Unmark">&times;</button>
         </div>`;
       } else {
         return `<div class="season-item" id="sitem-${showId}-${s.season_number}">
-          <div class="si-season-info">
-            <div class="si-season-title">${label}</div>
-            <div class="si-season-meta">${meta}</div>
+          <div class="si-season-row">
+            <div class="si-season-info">
+              <div class="si-season-title">${label}</div>
+              <div class="si-season-meta">${meta}</div>
+            </div>
           </div>
-          <input type="date" id="sd-${showId}-${s.season_number}" value="${today()}"
-                 style="flex-shrink:0;width:130px;padding:5px 8px;font-size:0.8rem">
-          <button onclick="markSeasonDone(${showId},${s.season_number})"
-                  style="flex-shrink:0;padding:6px 8px;font-size:0.8rem;white-space:nowrap">Done</button>
+          <div class="si-season-controls">
+            <input type="date" id="sd-${showId}-${s.season_number}" value="${today()}">
+            <button onclick="markSeasonDone(${showId},${s.season_number})">Done</button>
+          </div>
         </div>`;
       }
     }).join('');
