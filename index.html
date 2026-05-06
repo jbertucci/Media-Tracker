@@ -102,7 +102,6 @@
       color: var(--muted);
       font-size: 1.2rem;
       padding: 4px 8px;
-      width: auto;
     }
 
     .card {
@@ -202,7 +201,7 @@
     .modal h2 { font-size: 1.1rem; margin-bottom: 6px; }
     .modal p { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; line-height: 1.4; }
     .modal input { margin-bottom: 12px; }
-    .modal button { width: 100%; }
+    .modal button:not(.btn-icon) { width: 100%; }
 
     .spinner {
       display: inline-block;
@@ -1155,8 +1154,8 @@
               ${s.tmdb_status ? ' &middot; ' + tmdbStatusBadge(s.tmdb_status) : ''}
             </div>
           </div>
-          <span class="season-progress" onclick="openSeasonModal(${s.id},'${esc(s.name)}')"
-                title="Manage seasons">
+          <span class="season-progress" data-id="${s.id}" data-name="${esc(s.name)}"
+                onclick="openSeasonModalEl(this)" title="Manage seasons">
             ${s.seasons_done} / ${s.number_of_seasons}
           </span>
           <button class="btn-icon" data-id="${s.id}" data-name="${esc(s.name)}"
@@ -1185,6 +1184,10 @@
 
   // Season modal
   let currentSeasonShowId = null;
+
+  function openSeasonModalEl(el) {
+    openSeasonModal(parseInt(el.dataset.id), el.dataset.name);
+  }
 
   async function openSeasonModal(showId, name) {
     currentSeasonShowId = showId;
