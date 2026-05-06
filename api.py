@@ -1200,7 +1200,7 @@ def shows_stats_titles():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    base = 'SELECT DISTINCT t.id, t.name, t.first_air_date, t.poster_path, t.watch_status, t.number_of_seasons FROM tv_shows t'
+    base = 'SELECT DISTINCT t.id, t.name, t.first_air_date, t.poster_path, t.watch_status, t.tmdb_status, t.number_of_seasons FROM tv_shows t'
     if filter_type == 'genre':
         rows = cur.execute(f'{base} JOIN tv_show_genres g ON t.id=g.show_id WHERE g.name=? ORDER BY t.name', (value,)).fetchall()
     elif filter_type == 'network':
@@ -1220,6 +1220,7 @@ def shows_stats_titles():
         'year':             r['first_air_date'][:4] if r['first_air_date'] else None,
         'poster_path':      r['poster_path'],
         'watch_status':     r['watch_status'],
+        'tmdb_status':      r['tmdb_status'],
         'number_of_seasons': r['number_of_seasons'],
     } for r in rows])
 

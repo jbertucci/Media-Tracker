@@ -344,7 +344,7 @@
     .season-progress:hover { border-color:var(--accent); color:var(--text); }
     .season-item { display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
     .season-item:last-child { border-bottom:none; }
-    .si-season-info { flex:1; min-width:0; }
+    .si-season-info { flex:1 1 0; min-width:0; }
     .si-season-title { font-weight:600; font-size:0.88rem; }
     .si-season-meta { font-size:0.75rem; color:var(--muted); }
     .season-done-date { font-size:0.78rem; color:var(--green); white-space:nowrap; }
@@ -1147,6 +1147,7 @@
                              data-id="${s.id}" data-title="${esc(s.name)}"
                              data-status="${s.watch_status}" data-date=""
                              style="cursor:pointer">${showStatusBadge(s.watch_status)}</span>
+              ${s.tmdb_status ? ' &middot; ' + tmdbStatusBadge(s.tmdb_status) : ''}
             </div>
           </div>
           <span class="season-progress" onclick="openSeasonModal(${s.id},'${esc(s.name)}')"
@@ -1214,9 +1215,9 @@
             <div class="si-season-meta">${meta}</div>
           </div>
           <input type="date" id="sd-${showId}-${s.season_number}" value="${today()}"
-                 style="flex:1;max-width:130px;padding:5px 8px;font-size:0.8rem">
+                 style="flex-shrink:0;width:130px;padding:5px 8px;font-size:0.8rem">
           <button onclick="markSeasonDone(${showId},${s.season_number})"
-                  style="padding:6px 12px;font-size:0.8rem">Done</button>
+                  style="flex-shrink:0;padding:6px 8px;font-size:0.8rem;white-space:nowrap">Done</button>
         </div>`;
       }
     }).join('');
@@ -1327,7 +1328,7 @@
           ${posterImg(s.poster_path, 'poster-xs', 'w92')}
           <div class="drill-info">
             <div class="drill-title">${esc(s.name)}</div>
-            <div class="drill-meta">${s.year || '—'} &middot; ${showStatusBadge(s.watch_status)} &middot; ${s.number_of_seasons} seasons</div>
+            <div class="drill-meta">${s.year || '—'} &middot; ${showStatusBadge(s.watch_status)}${s.tmdb_status ? ' &middot; ' + tmdbStatusBadge(s.tmdb_status) : ''} &middot; ${s.number_of_seasons} seasons</div>
           </div>
         </div>`).join('');
     } catch (e) {
@@ -1613,12 +1614,15 @@
   };
 
   const TMDB_STATUS_COLORS = {
-    'Released':        { bg: '#1b3a1f', col: '#4caf50' },
-    'In Production':   { bg: '#1a2a4a', col: '#5b8dee' },
-    'Post Production': { bg: '#3a2a0a', col: '#ff9800' },
-    'Planned':         { bg: '#2a1a3a', col: '#7c5cbf' },
-    'Rumored':         { bg: '#252525', col: '#888'    },
-    'Canceled':        { bg: '#3a1a1a', col: '#e50914' },
+    'Released':          { bg: '#1b3a1f', col: '#4caf50' },
+    'In Production':     { bg: '#1a2a4a', col: '#5b8dee' },
+    'Post Production':   { bg: '#3a2a0a', col: '#ff9800' },
+    'Planned':           { bg: '#2a1a3a', col: '#7c5cbf' },
+    'Rumored':           { bg: '#252525', col: '#888'    },
+    'Canceled':          { bg: '#3a1a1a', col: '#e50914' },
+    'Returning Series':  { bg: '#1a2a4a', col: '#5b8dee' },
+    'Ended':             { bg: '#252525', col: '#888'    },
+    'Pilot':             { bg: '#2a1a3a', col: '#7c5cbf' },
   };
 
   function tmdbStatusBadge(status) {
