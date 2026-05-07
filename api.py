@@ -122,14 +122,29 @@ def _tv_refresh_worker():
             placeholders = ','.join('?' * len(_TV_REFRESH_STATUSES))
             conn = sqlite3.connect(DB_PATH)
             rows = conn.execute(
-                f'SELECT id, name FROM tv_shows WHERE tmdb_status IN ({placeholders})'
+                f'SELECT id, name, number_of_seasons, watch_status FROM tv_shows'
+                f' WHERE tmdb_status IN ({placeholders})'
                 f' AND (last_refreshed IS NULL OR last_refreshed < ?)',
                 (*_TV_REFRESH_STATUSES, cutoff)
             ).fetchall()
             conn.close()
-            for show_id, name in rows:
+            for show_id, name, old_seasons, watch_status in rows:
                 try:
-                    fetch_and_store_show(show_id, DB_PATH)
+                    fetch_and_store_show(show_id, DB_PATH, refresh_only=True)
+                    if watch_status == 'off_season':
+                        conn2 = sqlite3.connect(DB_PATH)
+                        row = conn2.execute(
+                            'SELECT number_of_seasons FROM tv_shows WHERE id=?', (show_id,)
+                        ).fetchone()
+                        new_seasons = row[0] if row else old_seasons
+                        if new_seasons and new_seasons > (old_seasons or 0):
+                            conn2.execute(
+                                "UPDATE tv_shows SET watch_status='on_hold' WHERE id=?",
+                                (show_id,)
+                            )
+                            conn2.commit()
+                            print(f'[TV refresh] {name}: new season detected, status → On Hold')
+                        conn2.close()
                     print(f'[TV refresh] Updated: {name}')
                 except Exception as e:
                     print(f'[TV refresh] Failed for {name}: {e}')
@@ -1172,7 +1187,7 @@ def shows_update_status(show_id):
     if not _auth():
         return jsonify({'error': 'Unauthorized'}), 401
     status = (request.get_json(silent=True) or {}).get('status', '').strip()
-    if status not in ('watching', 'completed', 'want_to_watch', 'dropped', 'on_hold'):
+    if status not in ('watching', 'completed', 'want_to_watch', 'dropped', 'on_hold', 'off_season'):
         return jsonify({'error': 'Invalid status'}), 400
     conn = sqlite3.connect(DB_PATH)
     conn.execute('UPDATE tv_shows SET watch_status=? WHERE id=?', (status, show_id))
@@ -1227,10 +1242,11 @@ def shows_stats():
 
     summary = cur.execute(f'''
         SELECT COUNT(*) as total,
-               SUM(CASE WHEN watch_status="completed" THEN 1 ELSE 0 END) as completed,
-               SUM(CASE WHEN watch_status="watching"  THEN 1 ELSE 0 END) as watching,
-               SUM(CASE WHEN watch_status="dropped"   THEN 1 ELSE 0 END) as dropped,
-               SUM(CASE WHEN watch_status="on_hold"   THEN 1 ELSE 0 END) as on_hold
+               SUM(CASE WHEN watch_status="completed"  THEN 1 ELSE 0 END) as completed,
+               SUM(CASE WHEN watch_status="watching"   THEN 1 ELSE 0 END) as watching,
+               SUM(CASE WHEN watch_status="dropped"    THEN 1 ELSE 0 END) as dropped,
+               SUM(CASE WHEN watch_status="on_hold"    THEN 1 ELSE 0 END) as on_hold,
+               SUM(CASE WHEN watch_status="off_season" THEN 1 ELSE 0 END) as off_season
         FROM tv_shows WHERE {WW}
     ''').fetchone()
 
@@ -1267,10 +1283,11 @@ def shows_stats():
 
     conn.close()
     status_data = [
-        {'label': 'Watching',  'count': summary['watching']  or 0},
-        {'label': 'Completed', 'count': summary['completed'] or 0},
-        {'label': 'On Hold',   'count': summary['on_hold']   or 0},
-        {'label': 'Dropped',   'count': summary['dropped']   or 0},
+        {'label': 'Watching',   'count': summary['watching']   or 0},
+        {'label': 'Completed',  'count': summary['completed']  or 0},
+        {'label': 'Off Season', 'count': summary['off_season'] or 0},
+        {'label': 'On Hold',    'count': summary['on_hold']    or 0},
+        {'label': 'Dropped',    'count': summary['dropped']    or 0},
     ]
     return jsonify({
         'summary':         {'total': summary['total'] or 0, 'completed': summary['completed'] or 0, 'seasons_done': seasons_done},

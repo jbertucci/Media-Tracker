@@ -360,6 +360,7 @@
     .badge-completed     { background:#1b3a1f; color:#4caf50; }
     .badge-want_to_watch { background:#3a2a0a; color:#ff9800; }
     .badge-on_hold       { background:#2a2a1a; color:#c9a84c; }
+    .badge-off_season    { background:#1a2a2a; color:#4db6ac; }
     .badge-dropped       { background:#2a1a1a; color:#888; }
 
     .book-cover-lg { width:54px; height:72px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
@@ -438,6 +439,7 @@
         <div class="status-pill" data-status="watching"      onclick="setShowFilter(this)">Watching</div>
         <div class="status-pill" data-status="completed"     onclick="setShowFilter(this)">Completed</div>
         <div class="status-pill" data-status="want_to_watch" onclick="setShowFilter(this)">Want to Watch</div>
+        <div class="status-pill" data-status="off_season"    onclick="setShowFilter(this)">Off Season</div>
         <div class="status-pill" data-status="on_hold"       onclick="setShowFilter(this)">On Hold</div>
         <div class="status-pill" data-status="dropped"       onclick="setShowFilter(this)">Dropped</div>
       </div>
@@ -1050,6 +1052,7 @@
     { value: 'watching',      label: 'Watching' },
     { value: 'completed',     label: 'Completed' },
     { value: 'want_to_watch', label: 'Want to Watch' },
+    { value: 'off_season',    label: 'Off Season' },
     { value: 'on_hold',       label: 'On Hold' },
     { value: 'dropped',       label: 'Dropped' },
   ];
@@ -1105,6 +1108,7 @@
               <option value="watching">Watching</option>
               <option value="completed">Completed</option>
               <option value="want_to_watch">Want to Watch</option>
+              <option value="off_season">Off Season</option>
               <option value="on_hold">On Hold</option>
               <option value="dropped">Dropped</option>
             </select>
@@ -1631,7 +1635,7 @@
   const STATUS_LABELS = {
     completed: 'Completed', playing: 'Playing', want_to_play: 'Want to Play', dropped: 'Dropped',
     watched: 'Watched', want_to_watch: 'Want to Watch', on_hold: 'On Hold',
-    watching: 'Watching',
+    watching: 'Watching', off_season: 'Off Season',
   };
   const STATUS_COLORS = {
     completed: '#4caf50', playing: '#5b8dee', want_to_play: '#ff9800', dropped: '#888',

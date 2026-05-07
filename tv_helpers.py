@@ -76,7 +76,8 @@ def search_show(title):
     return results[:5]
 
 
-def fetch_and_store_show(tmdb_id, db_path='tmdb_analytics.db', watch_status='watching'):
+def fetch_and_store_show(tmdb_id, db_path='tmdb_analytics.db', watch_status='watching',
+                         refresh_only=False):
     """Fetch full show details from TMDB and store in the DB."""
     resp = requests.get(
         f'https://api.themoviedb.org/3/tv/{tmdb_id}',
@@ -91,16 +92,28 @@ def fetch_and_store_show(tmdb_id, db_path='tmdb_analytics.db', watch_status='wat
     cur = conn.cursor()
 
     cur.execute('INSERT OR IGNORE INTO tv_shows (id, datetime_added) VALUES (?, ?)', (tmdb_id, now))
-    cur.execute('''
-        UPDATE tv_shows SET name=?, first_air_date=?, poster_path=?, overview=?,
-                            vote_average=?, tmdb_status=?, number_of_seasons=?, watch_status=?,
-                            last_refreshed=?
-        WHERE id=?
-    ''', (
-        data.get('name'), data.get('first_air_date'), data.get('poster_path'),
-        data.get('overview'), data.get('vote_average'), data.get('status'),
-        data.get('number_of_seasons'), watch_status, now, tmdb_id,
-    ))
+    if refresh_only:
+        cur.execute('''
+            UPDATE tv_shows SET name=?, first_air_date=?, poster_path=?, overview=?,
+                                vote_average=?, tmdb_status=?, number_of_seasons=?,
+                                last_refreshed=?
+            WHERE id=?
+        ''', (
+            data.get('name'), data.get('first_air_date'), data.get('poster_path'),
+            data.get('overview'), data.get('vote_average'), data.get('status'),
+            data.get('number_of_seasons'), now, tmdb_id,
+        ))
+    else:
+        cur.execute('''
+            UPDATE tv_shows SET name=?, first_air_date=?, poster_path=?, overview=?,
+                                vote_average=?, tmdb_status=?, number_of_seasons=?, watch_status=?,
+                                last_refreshed=?
+            WHERE id=?
+        ''', (
+            data.get('name'), data.get('first_air_date'), data.get('poster_path'),
+            data.get('overview'), data.get('vote_average'), data.get('status'),
+            data.get('number_of_seasons'), watch_status, now, tmdb_id,
+        ))
 
     cur.execute('DELETE FROM tv_show_genres WHERE show_id=?', (tmdb_id,))
     for g in data.get('genres', []):
