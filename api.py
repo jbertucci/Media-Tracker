@@ -1007,13 +1007,28 @@ def shows_list():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    base = '''SELECT id, name, first_air_date, poster_path, watch_status, tmdb_status,
-                     number_of_seasons,
-                     CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes
-              FROM tv_shows'''
-    order = 'ORDER BY CASE WHEN watch_status="watching" THEN 0 ELSE 1 END, datetime_added DESC'
+    base = '''
+        SELECT t.id, t.name, t.first_air_date, t.poster_path, t.watch_status, t.tmdb_status,
+               t.number_of_seasons, t.datetime_added,
+               CASE WHEN t.notes IS NOT NULL AND t.notes != '' THEN 1 ELSE 0 END as has_notes,
+               MAX(s.date_completed) as last_season_date
+        FROM tv_shows t
+        LEFT JOIN tv_seasons s ON s.show_id = t.id AND s.date_completed IS NOT NULL
+    '''
+    order = '''
+        GROUP BY t.id
+        ORDER BY
+            CASE t.watch_status
+                WHEN 'watching'      THEN 0
+                WHEN 'on_hold'       THEN 1
+                WHEN 'want_to_watch' THEN 2
+                ELSE 3
+            END,
+            MAX(s.date_completed) DESC,
+            t.datetime_added DESC
+    '''
     if status_filter:
-        rows = cur.execute(f'{base} WHERE watch_status=? {order}', (status_filter,)).fetchall()
+        rows = cur.execute(f'{base} WHERE t.watch_status=? {order}', (status_filter,)).fetchall()
     else:
         rows = cur.execute(f'{base} {order}').fetchall()
     result = []
@@ -1026,16 +1041,16 @@ def shows_list():
             'SELECT name FROM tv_show_networks WHERE show_id=? LIMIT 1', (r['id'],)
         ).fetchone()
         result.append({
-            'id':               r['id'],
-            'name':             r['name'],
-            'year':             r['first_air_date'][:4] if r['first_air_date'] else None,
-            'poster_path':      r['poster_path'],
-            'watch_status':     r['watch_status'],
-            'tmdb_status':      r['tmdb_status'],
+            'id':                r['id'],
+            'name':              r['name'],
+            'year':              r['first_air_date'][:4] if r['first_air_date'] else None,
+            'poster_path':       r['poster_path'],
+            'watch_status':      r['watch_status'],
+            'tmdb_status':       r['tmdb_status'],
             'number_of_seasons': r['number_of_seasons'] or 0,
-            'seasons_done':     seasons_done,
-            'network':          network['name'] if network else None,
-            'has_notes':        bool(r['has_notes']),
+            'seasons_done':      seasons_done,
+            'network':           network['name'] if network else None,
+            'has_notes':         bool(r['has_notes']),
         })
     conn.close()
     return jsonify(result)
@@ -1083,7 +1098,7 @@ def shows_update_status(show_id):
     if not _auth():
         return jsonify({'error': 'Unauthorized'}), 401
     status = (request.get_json(silent=True) or {}).get('status', '').strip()
-    if status not in ('watching', 'completed', 'want_to_watch', 'dropped'):
+    if status not in ('watching', 'completed', 'want_to_watch', 'dropped', 'on_hold'):
         return jsonify({'error': 'Invalid status'}), 400
     conn = sqlite3.connect(DB_PATH)
     conn.execute('UPDATE tv_shows SET watch_status=? WHERE id=?', (status, show_id))
@@ -1140,7 +1155,8 @@ def shows_stats():
         SELECT COUNT(*) as total,
                SUM(CASE WHEN watch_status="completed" THEN 1 ELSE 0 END) as completed,
                SUM(CASE WHEN watch_status="watching"  THEN 1 ELSE 0 END) as watching,
-               SUM(CASE WHEN watch_status="dropped"   THEN 1 ELSE 0 END) as dropped
+               SUM(CASE WHEN watch_status="dropped"   THEN 1 ELSE 0 END) as dropped,
+               SUM(CASE WHEN watch_status="on_hold"   THEN 1 ELSE 0 END) as on_hold
         FROM tv_shows WHERE {WW}
     ''').fetchone()
 
@@ -1179,6 +1195,7 @@ def shows_stats():
     status_data = [
         {'label': 'Watching',  'count': summary['watching']  or 0},
         {'label': 'Completed', 'count': summary['completed'] or 0},
+        {'label': 'On Hold',   'count': summary['on_hold']   or 0},
         {'label': 'Dropped',   'count': summary['dropped']   or 0},
     ]
     return jsonify({
