@@ -1224,7 +1224,8 @@
   function renderSeasonList(showId, seasons) {
     document.getElementById('season-list-body').innerHTML = seasons.map(s => {
       const label = esc(s.season_name || `Season ${s.season_number}`);
-      const meta  = [s.episode_count ? s.episode_count + ' eps' : '', s.air_date ? s.air_date.slice(0,4) : ''].filter(Boolean).join(' · ');
+      const airStr = s.air_date ? (() => { const d = new Date(s.air_date + 'T12:00:00'); return d.toLocaleString('default', { month: 'short' }) + ' ' + d.getFullYear(); })() : '';
+      const meta  = [s.episode_count ? s.episode_count + ' eps' : '', airStr].filter(Boolean).join(' · ');
       if (s.date_completed) {
         return `<div class="season-item" id="sitem-${showId}-${s.season_number}">
           <div class="si-season-row">
