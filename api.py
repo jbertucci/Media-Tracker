@@ -121,20 +121,23 @@ def _tv_refresh_worker():
             cutoff = (datetime.now(timezone.utc) - timedelta(days=_TV_REFRESH_DAYS)).isoformat()
             placeholders = ','.join('?' * len(_TV_REFRESH_STATUSES))
             conn = sqlite3.connect(DB_PATH)
+            VALID = "(episode_count IS NULL OR episode_count > 0) AND (air_date IS NULL OR air_date <= date('now'))"
             rows = conn.execute(
-                f'SELECT id, name, number_of_seasons, watch_status FROM tv_shows'
-                f' WHERE tmdb_status IN ({placeholders})'
-                f' AND (last_refreshed IS NULL OR last_refreshed < ?)',
+                f'SELECT t.id, t.name, t.watch_status,'
+                f' (SELECT COUNT(*) FROM tv_seasons s WHERE s.show_id=t.id AND {VALID}) as valid_seasons'
+                f' FROM tv_shows t WHERE t.tmdb_status IN ({placeholders})'
+                f' AND (t.last_refreshed IS NULL OR t.last_refreshed < ?)',
                 (*_TV_REFRESH_STATUSES, cutoff)
             ).fetchall()
             conn.close()
-            for show_id, name, old_seasons, watch_status in rows:
+            for show_id, name, watch_status, old_seasons in rows:
                 try:
                     fetch_and_store_show(show_id, DB_PATH, refresh_only=True)
                     if watch_status == 'off_season':
                         conn2 = sqlite3.connect(DB_PATH)
                         row = conn2.execute(
-                            'SELECT number_of_seasons FROM tv_shows WHERE id=?', (show_id,)
+                            f'SELECT COUNT(*) FROM tv_seasons WHERE show_id=? AND {VALID}',
+                            (show_id,)
                         ).fetchone()
                         new_seasons = row[0] if row else old_seasons
                         if new_seasons and new_seasons > (old_seasons or 0):
@@ -1122,8 +1125,13 @@ def shows_list():
         rows = cur.execute(f'{base} {order}').fetchall()
     result = []
     for r in rows:
+        VALID = "(episode_count IS NULL OR episode_count > 0) AND (air_date IS NULL OR air_date <= date('now'))"
+        seasons_total = cur.execute(
+            f'SELECT COUNT(*) as n FROM tv_seasons WHERE show_id=? AND {VALID}',
+            (r['id'],)
+        ).fetchone()['n']
         seasons_done = cur.execute(
-            'SELECT COUNT(*) as n FROM tv_seasons WHERE show_id=? AND date_completed IS NOT NULL',
+            f'SELECT COUNT(*) as n FROM tv_seasons WHERE show_id=? AND {VALID} AND date_completed IS NOT NULL',
             (r['id'],)
         ).fetchone()['n']
         network = cur.execute(
@@ -1136,7 +1144,7 @@ def shows_list():
             'poster_path':       r['poster_path'],
             'watch_status':      r['watch_status'],
             'tmdb_status':       r['tmdb_status'],
-            'number_of_seasons': r['number_of_seasons'] or 0,
+            'number_of_seasons': seasons_total,
             'seasons_done':      seasons_done,
             'network':           network['name'] if network else None,
             'has_notes':         bool(r['has_notes']),
@@ -1153,7 +1161,9 @@ def show_seasons(show_id):
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         'SELECT season_number, season_name, episode_count, air_date, date_completed '
-        'FROM tv_seasons WHERE show_id=? ORDER BY season_number',
+        "FROM tv_seasons WHERE show_id=? AND (episode_count IS NULL OR episode_count > 0)"
+        " AND (air_date IS NULL OR air_date <= date('now'))"
+        ' ORDER BY season_number',
         (show_id,)
     ).fetchall()
     conn.close()
