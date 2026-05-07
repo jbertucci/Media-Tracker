@@ -958,6 +958,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      const badgeEl = statusPickerTarget.el;
       closeStatusPicker();
       if (type === 'game') loadGameList(currentGameFilter);
       else if (type === 'book') {
@@ -965,6 +966,12 @@
         document.querySelectorAll('#book-list-pane .status-pill').forEach(p => p.classList.remove('active'));
         document.querySelector('#book-list-pane .status-pill[data-status=""]')?.classList.add('active');
         loadBookList('');
+      }
+      else if (type === 'show') {
+        if (badgeEl) {
+          badgeEl.innerHTML = showStatusBadge(status);
+          badgeEl.dataset.status = status;
+        }
       }
       else loadMovies(currentMovieFilter);
       toast('Status updated', 'success');
@@ -985,6 +992,7 @@
   function openStatusPickerEl(el, type) {
     const id = type === 'book' ? el.dataset.id : parseInt(el.dataset.id);
     openStatusPicker(type, id, el.dataset.title, el.dataset.status, el.dataset.date);
+    if (statusPickerTarget) statusPickerTarget.el = el;
   }
 
   // ── Notes ─────────────────────────────────────────────────────────────────
