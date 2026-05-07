@@ -1024,8 +1024,7 @@ def shows_list():
                 WHEN 'want_to_watch' THEN 2
                 ELSE 3
             END,
-            MAX(s.date_completed) DESC,
-            t.datetime_added DESC
+            COALESCE(MAX(s.date_completed), t.datetime_added) DESC
     '''
     if status_filter:
         rows = cur.execute(f'{base} WHERE t.watch_status=? {order}', (status_filter,)).fetchall()
