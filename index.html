@@ -411,6 +411,7 @@
         <div class="status-pill active" data-status="" onclick="setMovieFilter(this)">All</div>
         <div class="status-pill" data-status="watched" onclick="setMovieFilter(this)">Watched</div>
         <div class="status-pill" data-status="want_to_watch" onclick="setMovieFilter(this)">Want to Watch</div>
+        <button id="movie-refresh-btn" onclick="triggerRefresh('movies')" style="margin-left:auto;padding:4px 10px;font-size:0.75rem;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:20px;cursor:pointer">&#8635; Refresh</button>
       </div>
       <div id="movies-list"><div class="loading">Loading&hellip;</div></div>
     </div>
@@ -442,6 +443,7 @@
         <div class="status-pill" data-status="off_season"    onclick="setShowFilter(this)">Off Season</div>
         <div class="status-pill" data-status="on_hold"       onclick="setShowFilter(this)">On Hold</div>
         <div class="status-pill" data-status="dropped"       onclick="setShowFilter(this)">Dropped</div>
+        <button id="show-refresh-btn" onclick="triggerRefresh('shows')" style="margin-left:auto;padding:4px 10px;font-size:0.75rem;background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:20px;cursor:pointer">&#8635; Refresh</button>
       </div>
       <div id="show-list"></div>
     </div>
@@ -1284,6 +1286,23 @@
     const total = seasons.length;
     const pill  = document.querySelector(`#shi-${showId} .season-progress`);
     if (pill) pill.textContent = `${done} / ${total}`;
+  }
+
+  async function triggerRefresh(type) {
+    const btnId = type === 'shows' ? 'show-refresh-btn' : 'movie-refresh-btn';
+    const btn = document.getElementById(btnId);
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      await apiFetch(`/${type}/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      toast('Refresh started', 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = orig;
+    }
   }
 
   function closeSeasonModal() {

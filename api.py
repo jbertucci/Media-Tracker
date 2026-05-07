@@ -113,50 +113,87 @@ _TV_REFRESH_DAYS = 7
 _TV_CHECK_INTERVAL = 60 * 60  # re-check hourly
 
 
+VALID_SEASON = "(episode_count IS NULL OR episode_count > 0) AND (air_date IS NULL OR air_date <= date('now'))"
+_MOVIE_REFRESH_STATUSES = {'In Production', 'Post Production', 'Planned', 'Rumored'}
+
+
+def _run_tv_refresh(force=False):
+    import time
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=_TV_REFRESH_DAYS)).isoformat()
+    placeholders = ','.join('?' * len(_TV_REFRESH_STATUSES))
+    conn = sqlite3.connect(DB_PATH)
+    query = (
+        f'SELECT t.id, t.name, t.watch_status,'
+        f' (SELECT COUNT(*) FROM tv_seasons s WHERE s.show_id=t.id AND {VALID_SEASON}) as valid_seasons'
+        f' FROM tv_shows t WHERE t.tmdb_status IN ({placeholders})'
+    )
+    params = list(_TV_REFRESH_STATUSES)
+    if not force:
+        query += ' AND (t.last_refreshed IS NULL OR t.last_refreshed < ?)'
+        params.append(cutoff)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    count = 0
+    for show_id, name, watch_status, old_seasons in rows:
+        try:
+            fetch_and_store_show(show_id, DB_PATH, refresh_only=True)
+            if watch_status == 'off_season':
+                conn2 = sqlite3.connect(DB_PATH)
+                row = conn2.execute(
+                    f'SELECT COUNT(*) FROM tv_seasons WHERE show_id=? AND {VALID_SEASON}',
+                    (show_id,)
+                ).fetchone()
+                new_seasons = row[0] if row else old_seasons
+                if new_seasons and new_seasons > (old_seasons or 0):
+                    conn2.execute(
+                        "UPDATE tv_shows SET watch_status='on_hold' WHERE id=?", (show_id,)
+                    )
+                    conn2.commit()
+                    print(f'[TV refresh] {name}: new season detected, status → On Hold')
+                conn2.close()
+            print(f'[TV refresh] Updated: {name}')
+            count += 1
+        except Exception as e:
+            print(f'[TV refresh] Failed for {name}: {e}')
+        time.sleep(2)
+    return count
+
+
+def _run_movie_refresh(force=False):
+    import time
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=_TV_REFRESH_DAYS)).isoformat()
+    placeholders = ','.join('?' * len(_MOVIE_REFRESH_STATUSES))
+    conn = sqlite3.connect(DB_PATH)
+    query = (
+        f"SELECT id, title FROM films WHERE watch_status='want_to_watch'"
+        f' AND status IN ({placeholders})'
+    )
+    params = list(_MOVIE_REFRESH_STATUSES)
+    if not force:
+        query += ' AND (last_refreshed IS NULL OR last_refreshed < ?)'
+        params.append(cutoff)
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    count = 0
+    for film_id, title in rows:
+        try:
+            fetch_and_store_movie(film_id, DB_PATH, refresh_only=True)
+            print(f'[Movie refresh] Updated: {title}')
+            count += 1
+        except Exception as e:
+            print(f'[Movie refresh] Failed for {title}: {e}')
+        time.sleep(2)
+    return count
+
+
 def _tv_refresh_worker():
     import time
     while True:
         time.sleep(_TV_CHECK_INTERVAL)
         try:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=_TV_REFRESH_DAYS)).isoformat()
-            placeholders = ','.join('?' * len(_TV_REFRESH_STATUSES))
-            conn = sqlite3.connect(DB_PATH)
-            VALID = "(episode_count IS NULL OR episode_count > 0) AND (air_date IS NULL OR air_date <= date('now'))"
-            rows = conn.execute(
-                f'SELECT t.id, t.name, t.watch_status,'
-                f' (SELECT COUNT(*) FROM tv_seasons s WHERE s.show_id=t.id AND {VALID}) as valid_seasons'
-                f' FROM tv_shows t WHERE t.tmdb_status IN ({placeholders})'
-                f' AND (t.last_refreshed IS NULL OR t.last_refreshed < ?)',
-                (*_TV_REFRESH_STATUSES, cutoff)
-            ).fetchall()
-            conn.close()
-            for show_id, name, watch_status, old_seasons in rows:
-                try:
-                    fetch_and_store_show(show_id, DB_PATH, refresh_only=True)
-                    if watch_status == 'off_season':
-                        conn2 = sqlite3.connect(DB_PATH)
-                        row = conn2.execute(
-                            f'SELECT COUNT(*) FROM tv_seasons WHERE show_id=? AND {VALID}',
-                            (show_id,)
-                        ).fetchone()
-                        new_seasons = row[0] if row else old_seasons
-                        if new_seasons and new_seasons > (old_seasons or 0):
-                            conn2.execute(
-                                "UPDATE tv_shows SET watch_status='on_hold' WHERE id=?",
-                                (show_id,)
-                            )
-                            conn2.commit()
-                            print(f'[TV refresh] {name}: new season detected, status → On Hold')
-                        conn2.close()
-                    print(f'[TV refresh] Updated: {name}')
-                except Exception as e:
-                    print(f'[TV refresh] Failed for {name}: {e}')
-                time.sleep(2)
+            _run_tv_refresh()
         except Exception as e:
             print(f'[TV refresh] Worker error: {e}')
-
-
-_MOVIE_REFRESH_STATUSES = {'In Production', 'Post Production', 'Planned', 'Rumored'}
 
 
 def _movie_refresh_worker():
@@ -164,23 +201,7 @@ def _movie_refresh_worker():
     while True:
         time.sleep(_TV_CHECK_INTERVAL)
         try:
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=_TV_REFRESH_DAYS)).isoformat()
-            placeholders = ','.join('?' * len(_MOVIE_REFRESH_STATUSES))
-            conn = sqlite3.connect(DB_PATH)
-            rows = conn.execute(
-                f"SELECT id, title FROM films WHERE watch_status='want_to_watch'"
-                f' AND status IN ({placeholders})'
-                f' AND (last_refreshed IS NULL OR last_refreshed < ?)',
-                (*_MOVIE_REFRESH_STATUSES, cutoff)
-            ).fetchall()
-            conn.close()
-            for film_id, title in rows:
-                try:
-                    fetch_and_store_movie(film_id, DB_PATH, refresh_only=True)
-                    print(f'[Movie refresh] Updated: {title}')
-                except Exception as e:
-                    print(f'[Movie refresh] Failed for {title}: {e}')
-                time.sleep(2)
+            _run_movie_refresh()
         except Exception as e:
             print(f'[Movie refresh] Worker error: {e}')
 
@@ -1239,6 +1260,24 @@ def shows_remove(show_id):
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'removed': row[0]})
+
+
+@app.route('/shows/refresh', methods=['POST'])
+def trigger_shows_refresh():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    force = (request.get_json(silent=True) or {}).get('force', False)
+    threading.Thread(target=_run_tv_refresh, kwargs={'force': force}, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/movies/refresh', methods=['POST'])
+def trigger_movies_refresh():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    force = (request.get_json(silent=True) or {}).get('force', False)
+    threading.Thread(target=_run_movie_refresh, kwargs={'force': force}, daemon=True).start()
+    return jsonify({'ok': True})
 
 
 @app.route('/shows/stats')
