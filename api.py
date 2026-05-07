@@ -95,6 +95,81 @@ _ensure_game_battle_table()
 setup_books_db(DB_PATH)
 setup_tv_db(DB_PATH)
 
+# Migrate last_refreshed columns for existing DBs
+_conn = sqlite3.connect(DB_PATH)
+for _migration in [
+    'ALTER TABLE tv_shows ADD COLUMN last_refreshed TEXT',
+    'ALTER TABLE films ADD COLUMN last_refreshed TEXT',
+]:
+    try:
+        _conn.execute(_migration)
+        _conn.commit()
+    except sqlite3.OperationalError:
+        pass
+_conn.close()
+
+_TV_REFRESH_STATUSES = {'Returning Series', 'In Production', 'Planned', 'Pilot'}
+_TV_REFRESH_DAYS = 7
+_TV_CHECK_INTERVAL = 60 * 60  # re-check hourly
+
+
+def _tv_refresh_worker():
+    import time
+    while True:
+        time.sleep(_TV_CHECK_INTERVAL)
+        try:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=_TV_REFRESH_DAYS)).isoformat()
+            placeholders = ','.join('?' * len(_TV_REFRESH_STATUSES))
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute(
+                f'SELECT id, name FROM tv_shows WHERE tmdb_status IN ({placeholders})'
+                f' AND (last_refreshed IS NULL OR last_refreshed < ?)',
+                (*_TV_REFRESH_STATUSES, cutoff)
+            ).fetchall()
+            conn.close()
+            for show_id, name in rows:
+                try:
+                    fetch_and_store_show(show_id, DB_PATH)
+                    print(f'[TV refresh] Updated: {name}')
+                except Exception as e:
+                    print(f'[TV refresh] Failed for {name}: {e}')
+                time.sleep(2)
+        except Exception as e:
+            print(f'[TV refresh] Worker error: {e}')
+
+
+_MOVIE_REFRESH_STATUSES = {'In Production', 'Post Production', 'Planned', 'Rumored'}
+
+
+def _movie_refresh_worker():
+    import time
+    while True:
+        time.sleep(_TV_CHECK_INTERVAL)
+        try:
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=_TV_REFRESH_DAYS)).isoformat()
+            placeholders = ','.join('?' * len(_MOVIE_REFRESH_STATUSES))
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute(
+                f"SELECT id, title FROM films WHERE watch_status='want_to_watch'"
+                f' AND status IN ({placeholders})'
+                f' AND (last_refreshed IS NULL OR last_refreshed < ?)',
+                (*_MOVIE_REFRESH_STATUSES, cutoff)
+            ).fetchall()
+            conn.close()
+            for film_id, title in rows:
+                try:
+                    fetch_and_store_movie(film_id, DB_PATH, refresh_only=True)
+                    print(f'[Movie refresh] Updated: {title}')
+                except Exception as e:
+                    print(f'[Movie refresh] Failed for {title}: {e}')
+                time.sleep(2)
+        except Exception as e:
+            print(f'[Movie refresh] Worker error: {e}')
+
+
+threading.Thread(target=_tv_refresh_worker, daemon=True).start()
+threading.Thread(target=_movie_refresh_worker, daemon=True).start()
+
 
 def _auth():
     key = request.headers.get('X-API-Key') or request.args.get('api_key')

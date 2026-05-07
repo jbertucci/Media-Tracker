@@ -144,7 +144,8 @@ def search_movie(title, year=None):
 
 
 def fetch_and_store_movie(tmdb_id, db_path='tmdb_analytics.db',
-                          first_watched=None, last_watched=None, watch_count=None):
+                          first_watched=None, last_watched=None, watch_count=None,
+                          refresh_only=False):
     """Fetch full movie details + credits from TMDB and store in the analytics DB.
 
     first_watched / last_watched / watch_count are used by import_from_csv to inject
@@ -175,7 +176,23 @@ def fetch_and_store_movie(tmdb_id, db_path='tmdb_analytics.db',
     )
 
     # Refresh TMDB data and update watch tracking
-    if watch_count is not None:
+    if refresh_only:
+        cur.execute('''
+            UPDATE films SET
+                title = ?, original_title = ?, release_date = ?, runtime = ?,
+                budget = ?, revenue = ?, vote_average = ?, vote_count = ?,
+                popularity = ?, overview = ?, status = ?, poster_path = ?,
+                last_refreshed = ?
+            WHERE id = ?
+        ''', (
+            data.get('title'), data.get('original_title'), data.get('release_date'),
+            data.get('runtime'), data.get('budget'), data.get('revenue'),
+            data.get('vote_average'), data.get('vote_count'), data.get('popularity'),
+            data.get('overview'), data.get('status'), data.get('poster_path'),
+            now,
+            film_id,
+        ))
+    elif watch_count is not None:
         # CSV import: set dates and count absolutely
         cur.execute('''
             UPDATE films SET

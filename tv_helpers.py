@@ -27,6 +27,7 @@ def setup_tv_db(db_path='tmdb_analytics.db'):
             number_of_seasons INTEGER,
             watch_status      TEXT DEFAULT 'watching',
             datetime_added    TEXT,
+            last_refreshed    TEXT,
             notes             TEXT
         );
         CREATE TABLE IF NOT EXISTS tv_show_genres (
@@ -92,12 +93,13 @@ def fetch_and_store_show(tmdb_id, db_path='tmdb_analytics.db', watch_status='wat
     cur.execute('INSERT OR IGNORE INTO tv_shows (id, datetime_added) VALUES (?, ?)', (tmdb_id, now))
     cur.execute('''
         UPDATE tv_shows SET name=?, first_air_date=?, poster_path=?, overview=?,
-                            vote_average=?, tmdb_status=?, number_of_seasons=?, watch_status=?
+                            vote_average=?, tmdb_status=?, number_of_seasons=?, watch_status=?,
+                            last_refreshed=?
         WHERE id=?
     ''', (
         data.get('name'), data.get('first_air_date'), data.get('poster_path'),
         data.get('overview'), data.get('vote_average'), data.get('status'),
-        data.get('number_of_seasons'), watch_status, tmdb_id,
+        data.get('number_of_seasons'), watch_status, now, tmdb_id,
     ))
 
     cur.execute('DELETE FROM tv_show_genres WHERE show_id=?', (tmdb_id,))
