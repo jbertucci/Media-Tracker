@@ -956,6 +956,13 @@ def books_stats():
         GROUP BY label ORDER BY label
     ''').fetchall()
 
+    BOOK_FORMAT_LABELS = {'physical': 'Physical', 'ebook': 'eBook', 'audiobook': 'Audiobook'}
+    format_breakdown = cur.execute(f'''
+        SELECT COALESCE(format, 'physical') as label, COUNT(*) as count
+        FROM books WHERE {WR}
+        GROUP BY label ORDER BY count DESC
+    ''').fetchall()
+
     status_data = [
         {'label': 'Read',         'count': summary['read_count'] or 0},
         {'label': 'Reading',      'count': summary['reading']    or 0},
@@ -975,6 +982,7 @@ def books_stats():
         'nonfiction_genres':[dict(r) for r in nonfiction_genres],
         'by_year':          [dict(r) for r in by_year],
         'pages_by_year':    [dict(r) for r in pages_by_year],
+        'format_breakdown': [{'label': BOOK_FORMAT_LABELS.get(r['label'], r['label']), 'value': r['label'], 'count': r['count']} for r in format_breakdown],
         'status_breakdown': [s for s in status_data if s['count'] > 0],
     })
 

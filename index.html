@@ -1590,9 +1590,11 @@
                              data-id="${b.id}" data-title="${esc(b.title)}" data-status="${b.status}" data-date="${b.date_read||''}"
                              style="cursor:pointer">${bookStatusBadge(b.status)}</span>
               ${b.date_read ? ' &middot; ' + b.date_read.slice(0,10) : ''}
-              &middot; <span class="book-format-tag" data-id="${b.id}" data-format="${b.format||''}"
-                            onclick="event.stopPropagation();cycleBookFormat(this)" title="Click to change format"
-                            style="cursor:pointer;color:var(--muted)">${BOOK_FORMAT_LABELS[b.format] || 'Physical'}</span>
+            </div>
+            <div class="gi-meta">
+              <span class="book-format-tag" data-id="${b.id}" data-format="${b.format||''}"
+                    onclick="event.stopPropagation();cycleBookFormat(this)" title="Click to change format"
+                    style="cursor:pointer;color:var(--muted)">${BOOK_FORMAT_LABELS[b.format] || 'Physical'}</span>
             </div>
           </div>
           <button class="btn-icon" data-id="${b.id}" data-title="${esc(b.title)}"
@@ -1680,6 +1682,21 @@
       ${barsHTML('Non-Fiction Genres', s.nonfiction_genres, '#ff9800', 'genre', 'bookDrillRow')}
       ${barsHTML('Books Read by Year',  s.by_year,       '#4caf50', 'year', 'bookDrillRow')}
       ${barsHTML('Pages Read by Year', s.pages_by_year, '#7c5cbf', 'year', 'bookDrillRow')}
+      ${s.format_breakdown?.length > 1 ? (() => {
+        const total  = s.format_breakdown.reduce((a, b) => a + b.count, 0);
+        const colors = { Physical: '#c9a84c', eBook: '#5b8dee', Audiobook: '#4db6ac' };
+        return `<div class="stat-section"><h3>Format Breakdown</h3>
+          <div class="split-bar">${s.format_breakdown.map(i => {
+            const pct = (i.count / total * 100).toFixed(1);
+            const c   = colors[i.label] || '#888';
+            return `<div class="split-seg" style="width:0;background:${c}" data-w="${pct}%" title="${esc(i.label)}: ${pct}%"></div>`;
+          }).join('')}</div>
+          <div class="split-legend">${s.format_breakdown.map(i => {
+            const pct = (i.count / total * 100).toFixed(0);
+            const c   = colors[i.label] || '#888';
+            return `<div class="legend-item"><span class="legend-dot" style="background:${c}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
+          }).join('')}</div></div>`;
+      })() : ''}
     `;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       el.querySelectorAll('[data-w]').forEach(b => { b.style.width = b.dataset.w; });
