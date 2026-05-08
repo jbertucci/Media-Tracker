@@ -1591,7 +1591,7 @@
                              style="cursor:pointer">${bookStatusBadge(b.status)}</span>
               ${b.date_read ? ' &middot; ' + b.date_read.slice(0,10) : ''}
               &middot; <span class="book-format-tag" data-id="${b.id}" data-format="${b.format||''}"
-                            onclick="cycleBookFormat(this)" title="Click to change format"
+                            onclick="event.stopPropagation();cycleBookFormat(this)" title="Click to change format"
                             style="cursor:pointer;color:var(--muted)">${BOOK_FORMAT_LABELS[b.format] || 'Physical'}</span>
             </div>
           </div>
