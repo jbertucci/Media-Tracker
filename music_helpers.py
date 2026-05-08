@@ -68,17 +68,20 @@ def _parse_rg(rg):
 
 def search_album(query, release_type='album'):
     """Search MusicBrainz release-groups, return top 5 results."""
+    type_label = {'album': 'Album', 'ep': 'EP', 'single': 'Single'}.get(release_type, 'Album')
+    lucene_query = f'({query}) AND primarytype:{type_label}'
     resp = requests.get(
         f'{MB_BASE}/release-group',
         headers=MB_HEADERS,
-        params={'query': query, 'fmt': 'json', 'limit': 5, 'type': release_type},
+        params={'query': lucene_query, 'fmt': 'json', 'limit': 5},
         timeout=15,
     )
     resp.raise_for_status()
     results = resp.json().get('release-groups', [])
+    results = [rg for rg in results if (rg.get('primary-type') or '').lower() == type_label.lower()]
     if not results:
         raise ValueError(f'No results found for "{query}"')
-    return [_parse_rg(rg) for rg in results]
+    return [_parse_rg(rg) for rg in results[:5]]
 
 
 def fetch_and_store_album(mbid, db_path='tmdb_analytics.db', status='listened', date_listened=None):
