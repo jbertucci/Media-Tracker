@@ -29,6 +29,7 @@ def setup_books_db(db_path='tmdb_analytics.db'):
             description    TEXT,
             cover_url      TEXT,
             status         TEXT DEFAULT 'read',
+            format         TEXT,
             date_read      TEXT,
             datetime_added TEXT,
             notes          TEXT
@@ -68,7 +69,7 @@ def search_book(query, retries=3):
     """Search Google Books, return top 5 results. Retries on transient failures.
     If query is all digits, treats it as an ISBN lookup."""
     q = f'isbn:{query}' if (query.isdigit() and len(query) in (10, 13)) else query
-    params = {'q': q, 'maxResults': 5, 'key': BOOKS_API_KEY}
+    params = {'q': q, 'maxResults': 8, 'printType': 'books', 'key': BOOKS_API_KEY}
     last_err = None
     for attempt in range(retries):
         try:
@@ -77,7 +78,7 @@ def search_book(query, retries=3):
             items = resp.json().get('items', [])
             if not items:
                 raise ValueError(f'No results found for "{query}"')
-            return [_parse_volume(v) for v in items]
+            return [_parse_volume(v) for v in items][:5]
         except ValueError:
             raise  # "no results" — don't retry
         except Exception as e:
@@ -87,7 +88,7 @@ def search_book(query, retries=3):
     raise last_err
 
 
-def fetch_and_store_book(book_id, db_path='tmdb_analytics.db', status='read', date_read=None):
+def fetch_and_store_book(book_id, db_path='tmdb_analytics.db', status='read', date_read=None, book_format=None):
     """Fetch full book details from Google Books and store in the DB."""
     resp = requests.get(f'{BOOKS_URL}/{book_id}', params={'key': BOOKS_API_KEY}, timeout=15)
     resp.raise_for_status()
@@ -102,11 +103,11 @@ def fetch_and_store_book(book_id, db_path='tmdb_analytics.db', status='read', da
     cur.execute('INSERT OR IGNORE INTO books (id, datetime_added) VALUES (?, ?)', (b['id'], now))
     cur.execute('''
         UPDATE books SET title=?, authors=?, publisher=?, published_date=?,
-                         page_count=?, description=?, cover_url=?, status=?, date_read=?
+                         page_count=?, description=?, cover_url=?, status=?, format=?, date_read=?
         WHERE id=?
     ''', (
         b['title'], b['authors'], b['publisher'], b['published_date'],
-        b['page_count'], b['description'], b['cover_url'], status, date_read_ts,
+        b['page_count'], b['description'], b['cover_url'], status, book_format, date_read_ts,
         b['id'],
     ))
 
@@ -219,7 +220,7 @@ def import_books_from_csv(csv_path, db_path='tmdb_analytics.db'):
                 f'intitle:"{title}" inauthor:"{first_author}"',
                 f'intitle:"{title}"',
             ]:
-                params = {'q': query, 'maxResults': 1, 'key': BOOKS_API_KEY}
+                params = {'q': query, 'maxResults': 1, 'printType': 'books', 'key': BOOKS_API_KEY}
                 resp = requests.get(BOOKS_URL, params=params, timeout=15)
                 resp.raise_for_status()
                 items = resp.json().get('items', [])

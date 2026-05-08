@@ -108,6 +108,7 @@ for _migration in [
     'ALTER TABLE films ADD COLUMN last_refreshed TEXT',
     'ALTER TABLE albums ADD COLUMN release_type TEXT',
     'ALTER TABLE albums ADD COLUMN listen_count INTEGER DEFAULT 0',
+    'ALTER TABLE books ADD COLUMN format TEXT',
 ]:
     try:
         _conn.execute(_migration)
@@ -829,10 +830,11 @@ def books_add():
     book_id   = data.get('book_id')
     if not book_id:
         return jsonify({'error': 'book_id is required'}), 400
-    status    = data.get('status', 'read')
-    date_read = data.get('date_read')
+    status      = data.get('status', 'read')
+    date_read   = data.get('date_read')
+    book_format = data.get('format')
     try:
-        fetch_and_store_book(book_id, DB_PATH, status=status, date_read=date_read)
+        fetch_and_store_book(book_id, DB_PATH, status=status, date_read=date_read, book_format=book_format)
         return jsonify({'ok': True, 'book_id': book_id})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -846,7 +848,7 @@ def books_list():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    base = '''SELECT id, title, authors, published_date, page_count, cover_url, status, date_read,
+    base = '''SELECT id, title, authors, published_date, page_count, cover_url, status, format, date_read,
                      CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes
               FROM books'''
     if status_filter:
@@ -870,6 +872,7 @@ def books_list():
             'page_count':   r['page_count'],
             'cover_url':    r['cover_url'],
             'status':       r['status'],
+            'format':       r['format'],
             'date_read':    r['date_read'],
             'has_notes':    bool(r['has_notes']),
             'genres':       genres,
@@ -1062,6 +1065,20 @@ def books_update_status(book_id):
     conn = sqlite3.connect(DB_PATH)
     conn.execute('UPDATE books SET status=?, date_read=? WHERE id=?',
                  (status, date_read or None, book_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/books/<book_id>/format', methods=['POST'])
+def books_update_format(book_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    fmt = (request.get_json(silent=True) or {}).get('format', '').strip()
+    if fmt not in ('physical', 'ebook', 'audiobook'):
+        return jsonify({'error': 'Invalid format'}), 400
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('UPDATE books SET format=? WHERE id=?', (fmt, book_id))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

@@ -1434,7 +1434,9 @@
 
   // ── Books ─────────────────────────────────────────────────────────────────
 
-  const BOOK_STATUS_LABELS = { read:'Read', reading:'Reading', want_to_read:'Want to Read', dropped:'Dropped' };
+  const BOOK_STATUS_LABELS  = { read:'Read', reading:'Reading', want_to_read:'Want to Read', dropped:'Dropped' };
+  const BOOK_FORMAT_LABELS  = { physical:'Physical', ebook:'eBook', audiobook:'Audiobook' };
+  const BOOK_FORMAT_CYCLE   = ['physical', 'ebook', 'audiobook'];
   const BOOK_STATUS_COLORS = { read:'#4caf50', reading:'#5b8dee', want_to_read:'#ff9800', dropped:'#888' };
   const BOOK_STATUSES = [
     { value:'read',         label:'Read' },
@@ -1500,6 +1502,11 @@
               <option value="want_to_read">Want to Read</option>
               <option value="dropped">Dropped</option>
             </select>
+            <select id="bformat-${r.id}">
+              <option value="physical">Physical</option>
+              <option value="ebook">eBook</option>
+              <option value="audiobook">Audiobook</option>
+            </select>
             <input type="date" id="bdate-${r.id}" value="${today()}">
             <button data-id="${r.id}" data-title="${esc(r.title)}" onclick="addBookBtn(this)">Add</button>
           </div>
@@ -1513,6 +1520,22 @@
     }
   }
 
+  async function cycleBookFormat(el) {
+    const current = el.dataset.format || 'physical';
+    const next    = BOOK_FORMAT_CYCLE[(BOOK_FORMAT_CYCLE.indexOf(current) + 1) % BOOK_FORMAT_CYCLE.length];
+    try {
+      await apiFetch(`/books/${el.dataset.id}/format`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: next }),
+      });
+      el.dataset.format = next;
+      el.textContent    = BOOK_FORMAT_LABELS[next];
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
   function toggleBookDate(id) {
     const status = document.getElementById(`bstatus-${id}`)?.value;
     const dateEl = document.getElementById(`bdate-${id}`);
@@ -1523,6 +1546,7 @@
     const id    = btn.dataset.id;
     const title = btn.dataset.title;
     const status  = document.getElementById(`bstatus-${id}`).value;
+    const format  = document.getElementById(`bformat-${id}`).value;
     const dateEl  = document.getElementById(`bdate-${id}`);
     const date_read = dateEl?.style.display !== 'none' ? dateEl.value : null;
     btn.disabled = true;
@@ -1531,7 +1555,7 @@
       await apiFetch('/books/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ book_id: id, status, date_read: date_read || null }),
+        body: JSON.stringify({ book_id: id, status, format, date_read: date_read || null }),
       });
       btn.textContent = '✓ Added';
       btn.classList.add('btn-added');
@@ -1566,6 +1590,9 @@
                              data-id="${b.id}" data-title="${esc(b.title)}" data-status="${b.status}" data-date="${b.date_read||''}"
                              style="cursor:pointer">${bookStatusBadge(b.status)}</span>
               ${b.date_read ? ' &middot; ' + b.date_read.slice(0,10) : ''}
+              &middot; <span class="book-format-tag" data-id="${b.id}" data-format="${b.format||''}"
+                            onclick="cycleBookFormat(this)" title="Click to change format"
+                            style="cursor:pointer;color:var(--muted)">${BOOK_FORMAT_LABELS[b.format] || 'Physical'}</span>
             </div>
           </div>
           <button class="btn-icon" data-id="${b.id}" data-title="${esc(b.title)}"
