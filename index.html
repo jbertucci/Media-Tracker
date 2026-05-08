@@ -366,9 +366,12 @@
     .book-cover-lg { width:54px; height:72px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
     .book-cover-sm { width:40px; height:53px; object-fit:cover; border-radius:4px; flex-shrink:0; background:var(--surface2); }
     .book-cover-xs { width:33px; height:44px; object-fit:cover; border-radius:3px; flex-shrink:0; background:var(--surface2); }
-    .badge-read         { background:#1b3a1f; color:#4caf50; }
-    .badge-reading      { background:#1a2a4a; color:#5b8dee; }
-    .badge-want_to_read { background:#3a2a0a; color:#ff9800; }
+    .badge-read           { background:#1b3a1f; color:#4caf50; }
+    .badge-reading        { background:#1a2a4a; color:#5b8dee; }
+    .badge-want_to_read   { background:#3a2a0a; color:#ff9800; }
+    .badge-listened       { background:#1b3a1f; color:#4caf50; }
+    .badge-listening      { background:#1a2a4a; color:#5b8dee; }
+    .badge-want_to_listen { background:#3a2a0a; color:#ff9800; }
     .badge-dropped      { background:#2a1a1a; color:#888; }
 
     .poster-sm { width: 40px; height: 60px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--surface2); }
@@ -388,6 +391,7 @@
   <div class="tab" onclick="switchTab('games')">Games</div>
   <div class="tab" onclick="switchTab('books')">Books</div>
   <div class="tab" onclick="switchTab('tv')">TV</div>
+  <div class="tab" onclick="switchTab('music')">Music</div>
 </div>
 
 <main>
@@ -478,6 +482,40 @@
     </div>
     <div id="book-stats-pane" style="display:none">
       <div id="book-stats-content"><div class="loading">Loading&hellip;</div></div>
+    </div>
+  </div>
+
+  <div id="music-view" class="view">
+    <div class="game-subnav">
+      <button id="musub-search" class="active" onclick="setMusicSubview('search')">Search</button>
+      <button id="musub-list"   onclick="setMusicSubview('list')">My Music</button>
+      <button id="musub-stats"  onclick="setMusicSubview('stats')">Stats</button>
+    </div>
+    <div id="music-search-pane">
+      <div class="status-pills" style="margin-bottom:10px">
+        <div class="status-pill active" data-type="album"  onclick="setMusicType(this)">Album</div>
+        <div class="status-pill"        data-type="ep"     onclick="setMusicType(this)">EP</div>
+        <div class="status-pill"        data-type="single" onclick="setMusicType(this)">Single</div>
+      </div>
+      <div class="search-row">
+        <input type="text" id="music-search-input" placeholder="Album or artist&hellip;"
+               onkeydown="if(event.key==='Enter') doMusicSearch()">
+        <button id="music-search-btn" onclick="doMusicSearch()">Search</button>
+      </div>
+      <div id="music-search-results"></div>
+    </div>
+    <div id="music-list-pane" style="display:none">
+      <div class="status-pills">
+        <div class="status-pill active" data-status=""              onclick="setMusicFilter(this)">All</div>
+        <div class="status-pill" data-status="listened"       onclick="setMusicFilter(this)">Listened</div>
+        <div class="status-pill" data-status="listening"      onclick="setMusicFilter(this)">Listening</div>
+        <div class="status-pill" data-status="want_to_listen" onclick="setMusicFilter(this)">Want to Listen</div>
+        <div class="status-pill" data-status="dropped"        onclick="setMusicFilter(this)">Dropped</div>
+      </div>
+      <div id="album-list"></div>
+    </div>
+    <div id="music-stats-pane" style="display:none">
+      <div id="music-stats-content"><div class="loading">Loading&hellip;</div></div>
     </div>
   </div>
 
@@ -620,7 +658,7 @@
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   function switchTab(tab) {
-    const tabs = ['movies', 'games', 'books', 'tv'];
+    const tabs = ['movies', 'games', 'books', 'tv', 'music'];
     document.querySelectorAll('.tab').forEach((t, i) => {
       t.classList.toggle('active', tabs[i] === tab);
     });
@@ -917,16 +955,17 @@
     statusPickerTarget = { type, id };
     document.getElementById('status-picker-title').textContent = name;
     const opts = type === 'movie' ? MOVIE_STATUSES
-               : type === 'book' ? BOOK_STATUSES
-               : type === 'show' ? SHOW_STATUSES
+               : type === 'book'  ? BOOK_STATUSES
+               : type === 'show'  ? SHOW_STATUSES
+               : type === 'album' ? ALBUM_STATUSES
                : GAME_STATUSES;
     document.querySelector('.status-options').innerHTML = opts.map(o =>
       `<div class="status-opt${o.value === currentStatus ? ' selected' : ''}" data-value="${o.value}" onclick="selectStatus(this)">${o.label}</div>`
     ).join('');
     const dateEl = document.getElementById('status-picker-date');
     dateEl.value = currentDate ? currentDate.slice(0, 10) : today();
-    const bookDate = ['read', 'dropped'];
-    dateEl.style.display = (type === 'book' ? bookDate : DATE_STATUSES).includes(currentStatus) ? 'block' : 'none';
+    const DATE_MAP = { book: ['read','dropped'], album: ['listened','dropped'] };
+    dateEl.style.display = (DATE_MAP[type] || DATE_STATUSES).includes(currentStatus) ? 'block' : 'none';
     document.getElementById('status-picker-100').checked = false;
     document.getElementById('status-picker-100-label').style.display =
       statusPickerTarget.type === 'game' && currentStatus === 'completed' ? 'flex' : 'none';
@@ -936,10 +975,9 @@
   function selectStatus(el) {
     document.querySelectorAll('.status-opt').forEach(o => o.classList.remove('selected'));
     el.classList.add('selected');
-    const bookDate = ['read', 'dropped'];
-    const showDate = statusPickerTarget?.type === 'book'
-      ? bookDate.includes(el.dataset.value)
-      : DATE_STATUSES.includes(el.dataset.value);
+    const DATE_MAP = { book: ['read','dropped'], album: ['listened','dropped'] };
+    const dateGroup = DATE_MAP[statusPickerTarget?.type] || DATE_STATUSES;
+    const showDate  = dateGroup.includes(el.dataset.value);
     document.getElementById('status-picker-date').style.display = showDate ? 'block' : 'none';
     document.getElementById('status-picker-100-label').style.display =
       statusPickerTarget?.type === 'game' && el.dataset.value === 'completed' ? 'flex' : 'none';
@@ -953,9 +991,10 @@
     const date_completed = dateEl.style.display !== 'none' ? dateEl.value : null;
     const completed_fully = document.getElementById('status-picker-100')?.checked || false;
     let body;
-    if (type === 'movie')     body = { status };
-    else if (type === 'book') body = { status, date_read: date_completed };
-    else                      body = { status, date_completed, ...(status === 'completed' ? { completed_fully } : {}) };
+    if (type === 'movie')      body = { status };
+    else if (type === 'book')  body = { status, date_read: date_completed };
+    else if (type === 'album') body = { status, date_listened: date_completed };
+    else                       body = { status, date_completed, ...(status === 'completed' ? { completed_fully } : {}) };
     try {
       await apiFetch(`/${type}s/${id}/status`, {
         method: 'POST',
@@ -977,6 +1016,12 @@
           badgeEl.dataset.status = status;
         }
       }
+      else if (type === 'album') {
+        currentMusicFilter = '';
+        document.querySelectorAll('#music-list-pane .status-pill').forEach(p => p.classList.remove('active'));
+        document.querySelector('#music-list-pane .status-pill[data-status=""]')?.classList.add('active');
+        loadAlbumList('');
+      }
       else loadMovies(currentMovieFilter);
       toast('Status updated', 'success');
     } catch (e) {
@@ -994,7 +1039,7 @@
   }
 
   function openStatusPickerEl(el, type) {
-    const id = type === 'book' ? el.dataset.id : parseInt(el.dataset.id);
+    const id = (type === 'book' || type === 'album') ? el.dataset.id : parseInt(el.dataset.id);
     openStatusPicker(type, id, el.dataset.title, el.dataset.status, el.dataset.date);
     if (statusPickerTarget) statusPickerTarget.el = el;
   }
@@ -1893,6 +1938,238 @@
       toast(`Removed: ${name}`, 'success');
     } catch (e) {
       toast(e.message, 'error');
+    }
+  }
+
+  // ── Music ─────────────────────────────────────────────────────────────────
+
+  const ALBUM_STATUSES = [
+    { value: 'listened',      label: 'Listened' },
+    { value: 'listening',     label: 'Listening' },
+    { value: 'want_to_listen', label: 'Want to Listen' },
+    { value: 'dropped',       label: 'Dropped' },
+  ];
+
+  function albumCoverImg(url, cls) {
+    return url
+      ? `<img class="${cls}" src="${url}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\'${cls}\'></div>'">`
+      : `<div class="${cls}"></div>`;
+  }
+
+  function albumStatusBadge(status) {
+    const labels = { listened: 'Listened', listening: 'Listening', want_to_listen: 'Want to Listen', dropped: 'Dropped' };
+    return `<span class="status-badge badge-${status}">${labels[status] || status}</span>`;
+  }
+
+  function setMusicSubview(view) {
+    ['search', 'list', 'stats'].forEach(v => {
+      document.getElementById(`music-${v}-pane`).style.display = v === view ? 'block' : 'none';
+      document.getElementById(`musub-${v}`).classList.toggle('active', v === view);
+    });
+    if (view === 'list')  loadAlbumList('');
+    if (view === 'stats') loadMusicStats();
+  }
+
+  let currentMusicFilter = '';
+  let currentMusicType   = 'album';
+
+  function setMusicType(pill) {
+    document.querySelectorAll('#music-search-pane .status-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentMusicType = pill.dataset.type;
+    document.getElementById('music-search-results').innerHTML = '';
+  }
+
+  function setMusicFilter(pill) {
+    document.querySelectorAll('#music-list-pane .status-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentMusicFilter = pill.dataset.status;
+    loadAlbumList(currentMusicFilter);
+  }
+
+  async function doMusicSearch() {
+    const q = document.getElementById('music-search-input').value.trim();
+    if (!q) return;
+    const btn = document.getElementById('music-search-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    document.getElementById('music-search-results').innerHTML = '';
+    try {
+      const results = await apiFetch(`/music/search?q=${encodeURIComponent(q)}&type=${currentMusicType}`);
+      if (!results.length) {
+        document.getElementById('music-search-results').innerHTML = '<div class="empty">No results found.</div>';
+        return;
+      }
+      document.getElementById('music-search-results').innerHTML = results.map(r => `
+        <div class="game-card">
+          <div class="game-card-body">
+            ${albumCoverImg(r.cover_url, 'game-cover-lg')}
+            <div class="game-card-info">
+              <div class="game-card-title">${esc(r.title)}</div>
+              <div class="game-card-meta">${esc(r.artist || '—')} &middot; ${r.release_date ? r.release_date.slice(0,4) : '—'}${r.release_type ? ' &middot; ' + r.release_type : ''}</div>
+            </div>
+          </div>
+          <div class="game-card-actions">
+            <select id="mustatus-${r.id}" onchange="toggleMusicDate('${r.id}')">
+              <option value="listened">Listened</option>
+              <option value="listening">Listening</option>
+              <option value="want_to_listen">Want to Listen</option>
+              <option value="dropped">Dropped</option>
+            </select>
+            <input type="date" id="mudate-${r.id}" value="${today()}">
+            <button data-id="${r.id}" data-title="${esc(r.title)}" onclick="addAlbumBtn(this)">Add</button>
+          </div>
+        </div>`).join('');
+      results.forEach(r => toggleMusicDate(r.id));
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Search';
+    }
+  }
+
+  function toggleMusicDate(id) {
+    const status = document.getElementById(`mustatus-${id}`)?.value;
+    const dateEl = document.getElementById(`mudate-${id}`);
+    if (dateEl) dateEl.style.display = ['listened', 'dropped'].includes(status) ? 'block' : 'none';
+  }
+
+  async function addAlbumBtn(btn) {
+    const id    = btn.dataset.id;
+    const title = btn.dataset.title;
+    const status    = document.getElementById(`mustatus-${id}`).value;
+    const dateEl    = document.getElementById(`mudate-${id}`);
+    const date_listened = dateEl?.style.display !== 'none' ? dateEl.value : null;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      await apiFetch('/music/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ album_id: id, status, date_listened: date_listened || null }),
+      });
+      btn.textContent = '✓ Added';
+      btn.classList.add('btn-added');
+      toast(`Added: ${title}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Add';
+    }
+  }
+
+  async function loadAlbumList(status = '') {
+    const el = document.getElementById('album-list');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      const albums = await apiFetch(`/music${status ? '?status=' + status : ''}`);
+      if (!albums.length) {
+        el.innerHTML = '<div class="empty">No albums yet.</div>';
+        return;
+      }
+      el.innerHTML = albums.map(a => `
+        <div class="game-item" id="ali-${a.id}">
+          ${albumCoverImg(a.cover_url, 'book-cover-sm')}
+          <div class="gi-info" style="cursor:pointer"
+               data-type="album" data-id="${a.id}" data-title="${esc(a.title)}"
+               onclick="openNotesEl(this)">
+            <div class="gi-title">${esc(a.title)}${a.has_notes ? '<span class="note-dot"></span>' : ''}</div>
+            <div class="gi-meta">
+              ${esc(a.artist || '—')}${a.year ? ' &middot; ' + a.year : ''}${a.release_type ? ' &middot; ' + esc(a.release_type) : ''}
+              &middot; <span onclick="event.stopPropagation();openStatusPickerEl(this,'album')"
+                             data-id="${a.id}" data-title="${esc(a.title)}"
+                             data-status="${a.status}" data-date="${a.date_listened||''}"
+                             style="cursor:pointer">${albumStatusBadge(a.status)}</span>
+              ${a.status === 'listened' ? ' &middot; ' + a.listen_count + 'x listened' + (a.date_listened ? ' &middot; ' + a.date_listened.slice(0,10) : '') : ''}
+            </div>
+          </div>
+          <button class="btn-icon" data-id="${a.id}" data-title="${esc(a.title)}"
+                  onclick="removeAlbumBtn(this)" title="Remove">&times;</button>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      el.innerHTML = '';
+    }
+  }
+
+  function removeAlbumBtn(btn) {
+    removeAlbum(btn.dataset.id, btn.dataset.title);
+  }
+
+  async function removeAlbum(id, title) {
+    if (!confirm(`Remove "${title}"?`)) return;
+    try {
+      await apiFetch(`/music/${id}`, { method: 'DELETE' });
+      document.getElementById(`ali-${id}`)?.remove();
+      toast(`Removed: ${title}`, 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  async function loadMusicStats() {
+    const el = document.getElementById('music-stats-content');
+    el.innerHTML = '<div class="loading">Loading&hellip;</div>';
+    try {
+      renderMusicStats(await apiFetch('/music/stats'));
+    } catch (e) {
+      el.innerHTML = `<div class="empty">${e.message}</div>`;
+    }
+  }
+
+  function renderMusicStats(s) {
+    const el = document.getElementById('music-stats-content');
+    el.innerHTML = `
+      <div class="stat-summary">
+        <div class="stat-card"><div class="stat-num">${s.summary.total}</div><div class="stat-label">Albums</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.listened}</div><div class="stat-label">Listened</div></div>
+      </div>
+      ${barsHTML('Top Artists',       s.top_artists,      '#e50914', 'artist', 'musicDrillRow')}
+      ${barsHTML('Genres',            s.top_genres,       '#4caf50', 'genre',  'musicDrillRow')}
+      ${barsHTML('Albums by Year',    s.albums_by_year,   '#7c5cbf', 'year',   'musicDrillRow')}
+      ${barsHTML('Listened by Year',  s.listened_by_year, '#ff9800', null,     null)}
+      ${s.status_breakdown.length > 1 ? (() => {
+        const total = s.status_breakdown.reduce((a,b) => a + b.count, 0);
+        const colors = { Listened: '#4caf50', Listening: '#5b8dee', Dropped: '#888' };
+        return `<div class="stat-section"><h3>Library Breakdown</h3>
+          <div class="split-bar">${s.status_breakdown.map(i => {
+            const pct = (i.count/total*100).toFixed(1);
+            const c   = colors[i.label] || '#888';
+            return `<div class="split-seg" style="width:0;background:${c}" data-w="${pct}%" title="${esc(i.label)}: ${pct}%"></div>`;
+          }).join('')}</div>
+          <div class="split-legend">${s.status_breakdown.map(i => {
+            const pct = (i.count/total*100).toFixed(0);
+            const c   = colors[i.label] || '#888';
+            return `<div class="legend-item"><span class="legend-dot" style="background:${c}"></span><span>${esc(i.label)} ${pct}%</span></div>`;
+          }).join('')}</div></div>`;
+      })() : ''}
+    `;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelectorAll('[data-w]').forEach(b => { b.style.width = b.dataset.w; });
+    }));
+  }
+
+  function musicDrillRow(el) { musicDrillDown(el.dataset.drillType, el.dataset.drillVal); }
+
+  async function musicDrillDown(type, value) {
+    document.getElementById('drill-title').textContent = value;
+    document.getElementById('drill-list').innerHTML = '<div class="loading">Loading&hellip;</div>';
+    document.getElementById('drill-modal').style.display = 'flex';
+    try {
+      const albums = await apiFetch(`/music/stats/titles?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`);
+      document.getElementById('drill-list').innerHTML = albums.map((a, i) => `
+        <div class="drill-item">
+          <span class="drill-num">${i + 1}</span>
+          ${albumCoverImg(a.cover_url, 'poster-xs')}
+          <div class="drill-info">
+            <div class="drill-title">${esc(a.title)}</div>
+            <div class="drill-meta">${esc(a.artist || '—')}${a.year ? ' &middot; ' + a.year : ''} &middot; ${albumStatusBadge(a.status)}</div>
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      toast(e.message, 'error');
+      document.getElementById('drill-modal').style.display = 'none';
     }
   }
 

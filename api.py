@@ -28,6 +28,11 @@ from tv_helpers import (
     search_show,
     setup_tv_db,
 )
+from music_helpers import (
+    fetch_and_store_album,
+    search_album,
+    setup_music_db,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'tmdb_analytics.db')
@@ -94,12 +99,15 @@ def _ensure_game_battle_table():
 _ensure_game_battle_table()
 setup_books_db(DB_PATH)
 setup_tv_db(DB_PATH)
+setup_music_db(DB_PATH)
 
 # Migrate last_refreshed columns for existing DBs
 _conn = sqlite3.connect(DB_PATH)
 for _migration in [
     'ALTER TABLE tv_shows ADD COLUMN last_refreshed TEXT',
     'ALTER TABLE films ADD COLUMN last_refreshed TEXT',
+    'ALTER TABLE albums ADD COLUMN release_type TEXT',
+    'ALTER TABLE albums ADD COLUMN listen_count INTEGER DEFAULT 0',
 ]:
     try:
         _conn.execute(_migration)
@@ -1396,6 +1404,215 @@ def shows_stats_titles():
         'watch_status':     r['watch_status'],
         'tmdb_status':      r['tmdb_status'],
         'number_of_seasons': r['number_of_seasons'],
+    } for r in rows])
+
+
+# ── Music ─────────────────────────────────────────────────────────────────────
+
+@app.route('/music/search')
+def music_search():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    q            = request.args.get('q', '').strip()
+    release_type = request.args.get('type', 'album').strip()
+    if not q:
+        return jsonify({'error': 'q is required'}), 400
+    try:
+        return jsonify(search_album(q, release_type=release_type))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/music/add', methods=['POST'])
+def music_add():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data   = request.get_json(silent=True) or {}
+    mbid   = data.get('album_id')
+    status = data.get('status', 'listened')
+    if not mbid:
+        return jsonify({'error': 'album_id is required'}), 400
+    try:
+        fetch_and_store_album(mbid, DB_PATH, status=status, date_listened=data.get('date_listened'))
+        if status == 'want_to_listen':
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("UPDATE albums SET listen_count=0, date_listened=NULL WHERE id=?", (mbid,))
+            conn.commit()
+            conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/music')
+def music_list():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    status_filter = request.args.get('status', '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    base  = '''SELECT id, title, artist, release_date, release_type, cover_url, status,
+                      listen_count, date_listened,
+                      CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes
+               FROM albums'''
+    order = 'ORDER BY COALESCE(date_listened, datetime_added) DESC'
+    rows  = cur.execute(f'{base} WHERE status=? {order}', (status_filter,)).fetchall() \
+            if status_filter else cur.execute(f'{base} {order}').fetchall()
+    conn.close()
+    return jsonify([{
+        'id':            r['id'],
+        'title':         r['title'],
+        'artist':        r['artist'],
+        'year':          r['release_date'][:4] if r['release_date'] else None,
+        'release_type':  r['release_type'],
+        'cover_url':     r['cover_url'],
+        'status':        r['status'],
+        'listen_count':  r['listen_count'] or 0,
+        'date_listened': r['date_listened'],
+        'has_notes':     bool(r['has_notes']),
+    } for r in rows])
+
+
+@app.route('/music/<album_id>/status', methods=['POST'])
+def music_update_status(album_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data   = request.get_json(silent=True) or {}
+    status = data.get('status', '').strip()
+    if status not in ('listened', 'listening', 'want_to_listen', 'dropped'):
+        return jsonify({'error': 'Invalid status'}), 400
+    date_listened = data.get('date_listened') or \
+                    (datetime.now(timezone.utc).isoformat() if status in ('listened', 'dropped') else None)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('UPDATE albums SET status=?, date_listened=? WHERE id=?',
+                 (status, date_listened, album_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/music/<album_id>/notes', methods=['GET', 'POST'])
+def music_notes(album_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    if request.method == 'POST':
+        notes = (request.get_json(silent=True) or {}).get('notes', '')
+        conn.execute('UPDATE albums SET notes=? WHERE id=?', (notes, album_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    row = conn.execute('SELECT notes FROM albums WHERE id=?', (album_id,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify({'notes': row[0] or ''})
+
+
+@app.route('/music/<album_id>', methods=['DELETE'])
+def music_remove(album_id):
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute('SELECT title FROM albums WHERE id=?', (album_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    conn.execute('DELETE FROM album_genres WHERE album_id=?', (album_id,))
+    conn.execute('DELETE FROM albums WHERE id=?', (album_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'removed': row[0]})
+
+
+@app.route('/music/stats')
+def music_stats():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    WL = "status != 'want_to_listen'"
+
+    summary = cur.execute(f'''
+        SELECT COUNT(*) as total,
+               SUM(CASE WHEN status='listened'  THEN 1 ELSE 0 END) as listened,
+               SUM(CASE WHEN status='listening' THEN 1 ELSE 0 END) as listening,
+               SUM(CASE WHEN status='dropped'   THEN 1 ELSE 0 END) as dropped
+        FROM albums WHERE {WL}
+    ''').fetchone()
+
+    top_genres = cur.execute(f'''
+        SELECT g.name, COUNT(DISTINCT g.album_id) as count FROM album_genres g
+        JOIN albums a ON g.album_id=a.id WHERE a.{WL}
+        GROUP BY g.name ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
+    top_artists = cur.execute(f'''
+        SELECT artist as name, COUNT(*) as count FROM albums
+        WHERE {WL} AND artist IS NOT NULL AND artist != ''
+        GROUP BY artist ORDER BY count DESC LIMIT 8
+    ''').fetchall()
+
+    albums_by_year = cur.execute(f'''
+        SELECT SUBSTR(release_date, 1, 4) as label, COUNT(*) as count
+        FROM albums WHERE {WL} AND release_date IS NOT NULL AND release_date != ''
+        GROUP BY label ORDER BY label
+    ''').fetchall()
+
+    listened_by_year = cur.execute('''
+        SELECT SUBSTR(date_listened, 1, 4) as label, COUNT(*) as count
+        FROM albums WHERE status='listened' AND date_listened IS NOT NULL
+        GROUP BY label ORDER BY label
+    ''').fetchall()
+
+    conn.close()
+    total    = summary['total'] or 0
+    listened = summary['listened'] or 0
+    status_data = [
+        {'label': 'Listened',      'count': listened},
+        {'label': 'Listening',     'count': summary['listening'] or 0},
+        {'label': 'Dropped',       'count': summary['dropped']   or 0},
+    ]
+    return jsonify({
+        'summary':          {'total': total, 'listened': listened},
+        'top_genres':       [dict(r) for r in top_genres],
+        'top_artists':      [dict(r) for r in top_artists],
+        'albums_by_year':   [dict(r) for r in albums_by_year],
+        'listened_by_year': [dict(r) for r in listened_by_year],
+        'status_breakdown': [s for s in status_data if s['count'] > 0],
+    })
+
+
+@app.route('/music/stats/titles')
+def music_stats_titles():
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    filter_type = request.args.get('type', '').strip()
+    value       = request.args.get('value', '').strip()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    base = 'SELECT DISTINCT a.id, a.title, a.artist, a.release_date, a.cover_url, a.status FROM albums a'
+    if filter_type == 'genre':
+        rows = cur.execute(f'{base} JOIN album_genres g ON a.id=g.album_id WHERE g.name=? ORDER BY a.title', (value,)).fetchall()
+    elif filter_type == 'artist':
+        rows = cur.execute(f'{base} WHERE a.artist=? ORDER BY a.release_date', (value,)).fetchall()
+    elif filter_type == 'year':
+        rows = cur.execute(f'{base} WHERE SUBSTR(a.release_date,1,4)=? ORDER BY a.release_date', (value,)).fetchall()
+    else:
+        conn.close()
+        return jsonify({'error': f'Unknown type: {filter_type}'}), 400
+    conn.close()
+    return jsonify([{
+        'title':        r['title'],
+        'artist':       r['artist'],
+        'year':         r['release_date'][:4] if r['release_date'] else None,
+        'cover_url':    r['cover_url'],
+        'status':       r['status'],
     } for r in rows])
 
 
