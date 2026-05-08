@@ -1325,7 +1325,7 @@
 
   function renderTVStats(s) {
     const el = document.getElementById('tv-stats-content');
-    const statusColors = { Watching: '#5b8dee', Completed: '#4caf50', Dropped: '#888' };
+    const statusColors = { Watching: '#5b8dee', Completed: '#4caf50', Dropped: '#888', 'On Hold': '#c9a84c', 'Off Season': '#4db6ac' };
     el.innerHTML = `
       <div class="stat-summary">
         <div class="stat-card"><div class="stat-num">${s.summary.total}</div><div class="stat-label">Shows</div></div>
