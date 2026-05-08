@@ -1305,6 +1305,18 @@ def shows_stats():
         f'WHERE s.date_completed IS NOT NULL AND t.{WW}'
     ).fetchone()['n']
 
+    episodes_watched = cur.execute(
+        'SELECT COALESCE(SUM(s.episode_count), 0) FROM tv_seasons s '
+        'JOIN tv_shows t ON s.show_id=t.id '
+        f'WHERE s.date_completed IS NOT NULL AND t.{WW}'
+    ).fetchone()[0]
+
+    shows_by_year = cur.execute(f'''
+        SELECT SUBSTR(first_air_date, 1, 4) as label, COUNT(*) as count
+        FROM tv_shows WHERE {WW} AND first_air_date IS NOT NULL AND first_air_date != ''
+        GROUP BY label ORDER BY label
+    ''').fetchall()
+
     top_genres = cur.execute(f'''
         SELECT g.name, COUNT(DISTINCT g.show_id) as count FROM tv_show_genres g
         JOIN tv_shows t ON g.show_id=t.id WHERE t.{WW}
@@ -1338,12 +1350,17 @@ def shows_stats():
         {'label': 'On Hold',    'count': summary['on_hold']    or 0},
         {'label': 'Dropped',    'count': summary['dropped']    or 0},
     ]
+    total = summary['total'] or 0
+    completed = summary['completed'] or 0
+    completion_rate = round(completed / total * 100) if total else 0
     return jsonify({
-        'summary':         {'total': summary['total'] or 0, 'completed': summary['completed'] or 0, 'seasons_done': seasons_done},
-        'top_genres':      [dict(r) for r in top_genres],
-        'top_networks':    [dict(r) for r in top_networks],
-        'top_creators':    [dict(r) for r in top_creators],
-        'seasons_by_year': [dict(r) for r in seasons_by_year],
+        'summary':          {'total': total, 'completed': completed, 'seasons_done': seasons_done,
+                             'episodes_watched': episodes_watched, 'completion_rate': completion_rate},
+        'top_genres':       [dict(r) for r in top_genres],
+        'top_networks':     [dict(r) for r in top_networks],
+        'top_creators':     [dict(r) for r in top_creators],
+        'seasons_by_year':  [dict(r) for r in seasons_by_year],
+        'shows_by_year':    [dict(r) for r in shows_by_year],
         'status_breakdown': [s for s in status_data if s['count'] > 0],
     })
 

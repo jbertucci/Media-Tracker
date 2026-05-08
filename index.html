@@ -1329,13 +1329,15 @@
     el.innerHTML = `
       <div class="stat-summary">
         <div class="stat-card"><div class="stat-num">${s.summary.total}</div><div class="stat-label">Shows</div></div>
-        <div class="stat-card"><div class="stat-num">${s.summary.completed}</div><div class="stat-label">Completed</div></div>
         <div class="stat-card"><div class="stat-num">${s.summary.seasons_done}</div><div class="stat-label">Seasons</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.episodes_watched.toLocaleString()}</div><div class="stat-label">Episodes</div></div>
+        <div class="stat-card"><div class="stat-num">${s.summary.completion_rate}%</div><div class="stat-label">Complete</div></div>
       </div>
-      ${barsHTML('Top Creators',       s.top_creators,    '#e50914', 'creator', 'tvDrillRow')}
-      ${barsHTML('Networks',           s.top_networks,    '#5b8dee', 'network', 'tvDrillRow')}
-      ${barsHTML('Genres',             s.top_genres,      '#4caf50', 'genre',   'tvDrillRow')}
-      ${barsHTML('Seasons by Year',    s.seasons_by_year, '#ff9800', 'year',    'tvDrillRow')}
+      ${barsHTML('Top Creators',         s.top_creators,    '#e50914', 'creator', 'tvDrillRow')}
+      ${barsHTML('Networks',             s.top_networks,    '#5b8dee', 'network', 'tvDrillRow')}
+      ${barsHTML('Genres',               s.top_genres,      '#4caf50', 'genre',   'tvDrillRow')}
+      ${barsHTML('Shows by Premiere Year', s.shows_by_year, '#7c5cbf', 'year',    'tvDrillRow')}
+      ${barsHTML('Seasons Completed by Year', s.seasons_by_year, '#ff9800', null, null)}
       ${s.status_breakdown.length > 1 ? (() => {
         const total = s.status_breakdown.reduce((a,b) => a + b.count, 0);
         return `<div class="stat-section"><h3>Library Breakdown</h3>
