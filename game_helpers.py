@@ -16,7 +16,10 @@ with open(os.path.join(BASE_DIR, 'igdb_credentials.txt')) as f:
 
 TOKEN_CACHE_PATH = os.path.join(BASE_DIR, 'igdb_token_cache.json')
 WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql'
-WIKIDATA_HEADERS = {'User-Agent': 'MediaProjectAnalytics/1.0 (jbertucci131@gmail.com)'}
+
+_contact_path = os.path.join(BASE_DIR, 'contact_email.txt')
+_contact = open(_contact_path).read().strip() if os.path.exists(_contact_path) else 'unknown'
+WIKIDATA_HEADERS = {'User-Agent': f'MediaProjectAnalytics/1.0 ({_contact})'}
 
 
 def _igdb_token():

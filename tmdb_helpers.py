@@ -1,5 +1,6 @@
 import csv as csv_module
 import json
+import os
 import re
 import sqlite3
 import time
@@ -11,7 +12,10 @@ with open('tmdbtoken.txt', 'r') as f:
     TMDB_TOKEN = f.read().strip()
 
 TMDB_HEADERS = {'Authorization': f'Bearer {TMDB_TOKEN}', 'accept': 'application/json'}
-WIKIDATA_HEADERS = {'User-Agent': 'MediaProjectAnalytics/1.0 (jbertucci131@gmail.com)'}
+
+_contact_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'contact_email.txt')
+_contact = open(_contact_path).read().strip() if os.path.exists(_contact_path) else 'unknown'
+WIKIDATA_HEADERS = {'User-Agent': f'MediaProjectAnalytics/1.0 ({_contact})'}
 
 GENDER_MAP = {1: 'Female', 2: 'Male', 3: 'Non-Binary'}
 
