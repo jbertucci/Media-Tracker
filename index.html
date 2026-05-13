@@ -497,8 +497,12 @@
         <div class="status-pill"        data-type="ep"     onclick="setMusicType(this)">EP</div>
         <div class="status-pill"        data-type="single" onclick="setMusicType(this)">Single</div>
       </div>
+      <div class="search-row" style="margin-bottom:6px">
+        <input type="text" id="music-artist-input" placeholder="Artist (optional)&hellip;"
+               onkeydown="if(event.key==='Enter') doMusicSearch()">
+      </div>
       <div class="search-row">
-        <input type="text" id="music-search-input" placeholder="Album or artist&hellip;"
+        <input type="text" id="music-search-input" placeholder="Album title (optional)&hellip;"
                onkeydown="if(event.key==='Enter') doMusicSearch()">
         <button id="music-search-btn" onclick="doMusicSearch()">Search</button>
       </div>
@@ -2017,10 +2021,13 @@
   let currentMusicFilter = '';
   let currentMusicType   = 'album';
 
+  const musicTypePlaceholders = {album: 'Album title (optional)…', ep: 'EP title (optional)…', single: 'Single title (optional)…'};
+
   function setMusicType(pill) {
     document.querySelectorAll('#music-search-pane .status-pill').forEach(p => p.classList.remove('active'));
     pill.classList.add('active');
     currentMusicType = pill.dataset.type;
+    document.getElementById('music-search-input').placeholder = musicTypePlaceholders[currentMusicType] || 'Title (optional)…';
     document.getElementById('music-search-results').innerHTML = '';
   }
 
@@ -2032,14 +2039,18 @@
   }
 
   async function doMusicSearch() {
-    const q = document.getElementById('music-search-input').value.trim();
-    if (!q) return;
+    const q      = document.getElementById('music-search-input').value.trim();
+    const artist = document.getElementById('music-artist-input').value.trim();
+    if (!q && !artist) return;
     const btn = document.getElementById('music-search-btn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
     document.getElementById('music-search-results').innerHTML = '';
     try {
-      const results = await apiFetch(`/music/search?q=${encodeURIComponent(q)}&type=${currentMusicType}`);
+      const params = new URLSearchParams({type: currentMusicType});
+      if (q)      params.set('q',      q);
+      if (artist) params.set('artist', artist);
+      const results = await apiFetch(`/music/search?${params}`);
       if (!results.length) {
         document.getElementById('music-search-results').innerHTML = '<div class="empty">No results found.</div>';
         return;

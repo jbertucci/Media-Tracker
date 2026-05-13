@@ -66,10 +66,18 @@ def _parse_rg(rg):
     }
 
 
-def search_album(query, release_type='album'):
+def search_album(query=None, artist=None, release_type='album'):
     """Search MusicBrainz release-groups, return top 5 results."""
     type_label = {'album': 'Album', 'ep': 'EP', 'single': 'Single'}.get(release_type, 'Album')
-    lucene_query = f'({query}) AND primarytype:{type_label}'
+    parts = []
+    if artist:
+        parts.append(f'artist:({artist})')
+    if query:
+        parts.append(f'({query})')
+    if not parts:
+        raise ValueError('At least one of artist or title must be provided')
+    parts.append(f'primarytype:{type_label}')
+    lucene_query = ' AND '.join(parts)
     resp = requests.get(
         f'{MB_BASE}/release-group',
         headers=MB_HEADERS,
@@ -80,7 +88,7 @@ def search_album(query, release_type='album'):
     results = resp.json().get('release-groups', [])
     results = [rg for rg in results if (rg.get('primary-type') or '').lower() == type_label.lower()]
     if not results:
-        raise ValueError(f'No results found for "{query}"')
+        raise ValueError(f'No results found')
     return [_parse_rg(rg) for rg in results[:5]]
 
 

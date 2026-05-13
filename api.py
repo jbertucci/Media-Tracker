@@ -1438,12 +1438,13 @@ def shows_stats_titles():
 def music_search():
     if not _auth():
         return jsonify({'error': 'Unauthorized'}), 401
-    q            = request.args.get('q', '').strip()
+    q            = request.args.get('q', '').strip() or None
+    artist       = request.args.get('artist', '').strip() or None
     release_type = request.args.get('type', 'album').strip()
-    if not q:
-        return jsonify({'error': 'q is required'}), 400
+    if not q and not artist:
+        return jsonify({'error': 'At least one of q or artist is required'}), 400
     try:
-        return jsonify(search_album(q, release_type=release_type))
+        return jsonify(search_album(q, artist=artist, release_type=release_type))
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
     except Exception as e:
