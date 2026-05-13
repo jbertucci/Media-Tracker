@@ -30,7 +30,9 @@ from tv_helpers import (
 )
 from music_helpers import (
     fetch_and_store_album,
+    fetch_and_store_itunes_album,
     search_album,
+    search_album_itunes,
     setup_music_db,
 )
 
@@ -1441,9 +1443,12 @@ def music_search():
     q            = request.args.get('q', '').strip() or None
     artist       = request.args.get('artist', '').strip() or None
     release_type = request.args.get('type', 'album').strip()
+    source       = request.args.get('source', 'musicbrainz').strip()
     if not q and not artist:
         return jsonify({'error': 'At least one of q or artist is required'}), 400
     try:
+        if source == 'itunes':
+            return jsonify(search_album_itunes(q, artist=artist, release_type=release_type))
         return jsonify(search_album(q, artist=artist, release_type=release_type))
     except ValueError as e:
         return jsonify({'error': str(e)}), 404
@@ -1455,16 +1460,23 @@ def music_search():
 def music_add():
     if not _auth():
         return jsonify({'error': 'Unauthorized'}), 401
-    data   = request.get_json(silent=True) or {}
-    mbid   = data.get('album_id')
-    status = data.get('status', 'listened')
-    if not mbid:
+    data         = request.get_json(silent=True) or {}
+    album_id     = data.get('album_id')
+    status       = data.get('status', 'listened')
+    release_type = data.get('release_type', 'Album')
+    if not album_id:
         return jsonify({'error': 'album_id is required'}), 400
     try:
-        fetch_and_store_album(mbid, DB_PATH, status=status, date_listened=data.get('date_listened'))
+        if album_id.startswith('itunes-'):
+            fetch_and_store_itunes_album(
+                album_id[7:], DB_PATH, status=status,
+                date_listened=data.get('date_listened'), release_type=release_type,
+            )
+        else:
+            fetch_and_store_album(album_id, DB_PATH, status=status, date_listened=data.get('date_listened'))
         if status == 'want_to_listen':
             conn = sqlite3.connect(DB_PATH)
-            conn.execute("UPDATE albums SET listen_count=0, date_listened=NULL WHERE id=?", (mbid,))
+            conn.execute("UPDATE albums SET listen_count=0, date_listened=NULL WHERE id=?", (album_id,))
             conn.commit()
             conn.close()
         return jsonify({'ok': True})

@@ -492,10 +492,14 @@
       <button id="musub-stats"  onclick="setMusicSubview('stats')">Stats</button>
     </div>
     <div id="music-search-pane">
-      <div class="status-pills" style="margin-bottom:10px">
+      <div class="status-pills" style="margin-bottom:6px">
         <div class="status-pill active" data-type="album"  onclick="setMusicType(this)">Album</div>
         <div class="status-pill"        data-type="ep"     onclick="setMusicType(this)">EP</div>
         <div class="status-pill"        data-type="single" onclick="setMusicType(this)">Single</div>
+      </div>
+      <div id="music-source-pills" class="status-pills" style="margin-bottom:10px">
+        <div class="status-pill active" data-source="musicbrainz" onclick="setMusicSource(this)">MusicBrainz</div>
+        <div class="status-pill"        data-source="itunes"      onclick="setMusicSource(this)">iTunes</div>
       </div>
       <div class="search-row" style="margin-bottom:6px">
         <input type="text" id="music-artist-input" placeholder="Artist&hellip;"
@@ -2020,6 +2024,7 @@
 
   let currentMusicFilter = '';
   let currentMusicType   = 'album';
+  let currentMusicSource = 'musicbrainz';
 
   const musicTypePlaceholders = {album: 'Album title…', ep: 'EP title…', single: 'Single title…'};
 
@@ -2028,6 +2033,13 @@
     pill.classList.add('active');
     currentMusicType = pill.dataset.type;
     document.getElementById('music-search-input').placeholder = musicTypePlaceholders[currentMusicType] || 'Title (optional)…';
+    document.getElementById('music-search-results').innerHTML = '';
+  }
+
+  function setMusicSource(pill) {
+    document.querySelectorAll('#music-source-pills .status-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentMusicSource = pill.dataset.source;
     document.getElementById('music-search-results').innerHTML = '';
   }
 
@@ -2047,7 +2059,7 @@
     btn.innerHTML = '<span class="spinner"></span>';
     document.getElementById('music-search-results').innerHTML = '';
     try {
-      const params = new URLSearchParams({type: currentMusicType});
+      const params = new URLSearchParams({type: currentMusicType, source: currentMusicSource});
       if (q)      params.set('q',      q);
       if (artist) params.set('artist', artist);
       const results = await apiFetch(`/music/search?${params}`);
@@ -2072,7 +2084,7 @@
               <option value="dropped">Dropped</option>
             </select>
             <input type="date" id="mudate-${r.id}" value="${today()}">
-            <button data-id="${r.id}" data-title="${esc(r.title)}" onclick="addAlbumBtn(this)">Add</button>
+            <button data-id="${r.id}" data-title="${esc(r.title)}" data-type="${esc(r.release_type||'Album')}" onclick="addAlbumBtn(this)">Add</button>
           </div>
         </div>`).join('');
       results.forEach(r => toggleMusicDate(r.id));
@@ -2091,10 +2103,11 @@
   }
 
   async function addAlbumBtn(btn) {
-    const id    = btn.dataset.id;
-    const title = btn.dataset.title;
-    const status    = document.getElementById(`mustatus-${id}`).value;
-    const dateEl    = document.getElementById(`mudate-${id}`);
+    const id           = btn.dataset.id;
+    const title        = btn.dataset.title;
+    const release_type = btn.dataset.type || 'Album';
+    const status       = document.getElementById(`mustatus-${id}`).value;
+    const dateEl       = document.getElementById(`mudate-${id}`);
     const date_listened = dateEl?.style.display !== 'none' ? dateEl.value : null;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
@@ -2102,7 +2115,7 @@
       await apiFetch('/music/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ album_id: id, status, date_listened: date_listened || null }),
+        body: JSON.stringify({ album_id: id, status, date_listened: date_listened || null, release_type }),
       });
       btn.textContent = '✓ Added';
       btn.classList.add('btn-added');
