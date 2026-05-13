@@ -498,11 +498,11 @@
         <div class="status-pill"        data-type="single" onclick="setMusicType(this)">Single</div>
       </div>
       <div class="search-row" style="margin-bottom:6px">
-        <input type="text" id="music-artist-input" placeholder="Artist (optional)&hellip;"
+        <input type="text" id="music-artist-input" placeholder="Artist&hellip;"
                onkeydown="if(event.key==='Enter') doMusicSearch()">
       </div>
       <div class="search-row">
-        <input type="text" id="music-search-input" placeholder="Album title (optional)&hellip;"
+        <input type="text" id="music-search-input" placeholder="Album title&hellip;"
                onkeydown="if(event.key==='Enter') doMusicSearch()">
         <button id="music-search-btn" onclick="doMusicSearch()">Search</button>
       </div>
@@ -2021,7 +2021,7 @@
   let currentMusicFilter = '';
   let currentMusicType   = 'album';
 
-  const musicTypePlaceholders = {album: 'Album title (optional)…', ep: 'EP title (optional)…', single: 'Single title (optional)…'};
+  const musicTypePlaceholders = {album: 'Album title…', ep: 'EP title…', single: 'Single title…'};
 
   function setMusicType(pill) {
     document.querySelectorAll('#music-search-pane .status-pill').forEach(p => p.classList.remove('active'));
