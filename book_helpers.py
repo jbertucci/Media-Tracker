@@ -9,7 +9,7 @@ import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-with open(os.path.join(BASE_DIR, 'booksapi.txt')) as f:
+with open(os.path.join(BASE_DIR, 'credentials', 'booksapi.txt')) as f:
     BOOKS_API_KEY = f.read().strip()
 
 BOOKS_URL = 'https://www.googleapis.com/books/v1/volumes'

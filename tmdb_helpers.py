@@ -8,12 +8,12 @@ from collections import defaultdict
 from datetime import datetime, timezone
 import requests
 
-with open('tmdbtoken.txt', 'r') as f:
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'credentials', 'tmdbtoken.txt')) as f:
     TMDB_TOKEN = f.read().strip()
 
 TMDB_HEADERS = {'Authorization': f'Bearer {TMDB_TOKEN}', 'accept': 'application/json'}
 
-_contact_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'contact_email.txt')
+_contact_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'credentials', 'contact_email.txt')
 _contact = open(_contact_path).read().strip() if os.path.exists(_contact_path) else 'unknown'
 WIKIDATA_HEADERS = {'User-Agent': f'MediaProjectAnalytics/1.0 ({_contact})'}
 

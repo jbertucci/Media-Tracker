@@ -41,7 +41,7 @@ app = Flask(__name__)
 
 
 def _load_api_key():
-    key_file = os.path.join(BASE_DIR, 'flask_api_key.txt')
+    key_file = os.path.join(BASE_DIR, 'credentials', 'flask_api_key.txt')
     if os.path.exists(key_file):
         with open(key_file) as f:
             return f.read().strip()

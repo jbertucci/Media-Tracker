@@ -9,15 +9,15 @@ import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-with open(os.path.join(BASE_DIR, 'igdb_credentials.txt')) as f:
+with open(os.path.join(BASE_DIR, 'credentials', 'igdb_credentials.txt')) as f:
     lines = f.read().strip().splitlines()
     IGDB_CLIENT_ID = lines[0].strip()
     IGDB_CLIENT_SECRET = lines[1].strip()
 
-TOKEN_CACHE_PATH = os.path.join(BASE_DIR, 'igdb_token_cache.json')
+TOKEN_CACHE_PATH = os.path.join(BASE_DIR, 'credentials', 'igdb_token_cache.json')
 WIKIDATA_SPARQL = 'https://query.wikidata.org/sparql'
 
-_contact_path = os.path.join(BASE_DIR, 'contact_email.txt')
+_contact_path = os.path.join(BASE_DIR, 'credentials', 'contact_email.txt')
 _contact = open(_contact_path).read().strip() if os.path.exists(_contact_path) else 'unknown'
 WIKIDATA_HEADERS = {'User-Agent': f'MediaProjectAnalytics/1.0 ({_contact})'}
 

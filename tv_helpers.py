@@ -6,7 +6,7 @@ import requests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-with open(os.path.join(BASE_DIR, 'tmdbtoken.txt')) as f:
+with open(os.path.join(BASE_DIR, 'credentials', 'tmdbtoken.txt')) as f:
     TMDB_TOKEN = f.read().strip()
 
 TMDB_HEADERS = {'Authorization': f'Bearer {TMDB_TOKEN}', 'accept': 'application/json'}
