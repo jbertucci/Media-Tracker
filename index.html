@@ -290,6 +290,8 @@
     .bo-section-label { padding:10px 16px 6px; color:var(--muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.07em; }
     .battle-btn { width:100%; background:var(--surface); color:var(--text); border:1px solid var(--border); margin-bottom:12px; }
     .battle-btn:active { background:var(--surface2); }
+    .battle-btn:disabled { opacity:0.5; }
+    .battle-skip-wrap { padding:0 12px; }
 
     /* ── Games ── */
     .game-subnav { display:flex; gap:6px; margin-bottom:12px; }
@@ -608,6 +610,7 @@
   <div id="bo-battle">
     <div class="battle-progress" id="bo-progress"></div>
     <div class="battle-arena" id="bo-arena"></div>
+    <div class="battle-skip-wrap"><button class="battle-btn" id="bo-skip-btn" onclick="skipBattle()">&#8635; New matchup</button></div>
   </div>
   <div id="bo-rankings" style="display:none">
     <div id="bo-rankings-list"></div>
@@ -2260,13 +2263,29 @@
     document.getElementById('battle-overlay').style.display = 'none';
   }
 
-  async function loadBattle() {
+  async function loadBattle(excludeId = null) {
+    const skipBtn = document.getElementById('bo-skip-btn');
+    skipBtn.disabled = true;
     document.getElementById('bo-arena').innerHTML = '<div class="loading">Loading&hellip;</div>';
     try {
-      const endpoint = battleMode === 'games' ? '/game_battle/next' : '/battle/next';
+      let endpoint = battleMode === 'games' ? '/game_battle/next' : '/battle/next';
+      if (excludeId) endpoint += `?exclude=${excludeId}`;
       renderBattleArena(await apiFetch(endpoint));
+      skipBtn.disabled = false;
     } catch (e) {
       document.getElementById('bo-arena').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function skipBattle() {
+    document.getElementById('bo-skip-btn').disabled = true;
+    try {
+      const endpoint = battleMode === 'games' ? '/game_battle/skip' : '/battle/skip';
+      const result = await apiFetch(endpoint, { method: 'POST' });
+      loadBattle(result.skipped_id);
+    } catch (e) {
+      toast(e.message, 'error');
+      loadBattle();
     }
   }
 
@@ -2311,6 +2330,7 @@
 
   async function chooseSide(card) {
     const arena = document.getElementById('bo-arena');
+    document.getElementById('bo-skip-btn').disabled = true;
     arena.querySelectorAll('.battle-card').forEach(c => { c.onclick = null; });
     card.classList.add('battle-winner');
     arena.querySelectorAll('.battle-card').forEach(c => {

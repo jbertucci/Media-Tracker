@@ -68,6 +68,12 @@ def _ensure_battle_table():
             opponent_id   INTEGER
         )
     ''')
+    # restore_* hold a challenger's original rank when it was temporarily unranked to re-battle
+    for col, col_type in [('restore_rank', 'INTEGER'), ('restore_date', 'TEXT')]:
+        try:
+            conn.execute(f'ALTER TABLE battle_state ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass
     for col, col_type in [
         ('rank',        'INTEGER'),
         ('date_ranked', 'TEXT'),
@@ -95,6 +101,12 @@ def _ensure_game_battle_table():
             opponent_id   INTEGER
         )
     ''')
+    # restore_* hold a challenger's original rank when it was temporarily unranked to re-battle
+    for col, col_type in [('restore_rank', 'INTEGER'), ('restore_date', 'TEXT')]:
+        try:
+            conn.execute(f'ALTER TABLE game_battle_state ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     conn.close()
 
@@ -1703,6 +1715,32 @@ def _expire_rankings(cur):
     )
 
 
+WATCHED = "COALESCE(watch_status,'watched') = 'watched'"  # only watched films can battle
+BATTLE_COOLDOWN_DAYS = 30  # films watched more recently than this aren't picked as challengers
+
+
+def _battle_cooldown_cutoff():
+    return (datetime.now(timezone.utc) - timedelta(days=BATTLE_COOLDOWN_DAYS)).strftime('%Y-%m-%dT%H:%M:%S')
+
+
+def _off_cooldown(last_watched, cutoff):
+    return not last_watched or last_watched < cutoff
+
+
+def _purge_unwatched_from_battle(cur):
+    """Strip ranks from want-to-watch films, close rank gaps (e.g. after a deletion),
+    and drop the current battle if either film is no longer watched or no longer exists."""
+    cur.execute(f'UPDATE films SET rank = NULL, date_ranked = NULL WHERE rank IS NOT NULL AND NOT ({WATCHED})')
+    ranked = cur.execute('SELECT id FROM films WHERE rank IS NOT NULL ORDER BY rank').fetchall()
+    for i, r in enumerate(ranked, start=1):
+        cur.execute('UPDATE films SET rank = ? WHERE id = ?', (i, r['id']))
+    cur.execute(
+        f'DELETE FROM battle_state WHERE id = 1 AND ('
+        f'challenger_id NOT IN (SELECT id FROM films WHERE {WATCHED}) OR '
+        f'opponent_id NOT IN (SELECT id FROM films WHERE {WATCHED}))'
+    )
+
+
 def _film_card(cur, film_id):
     film = cur.execute(
         'SELECT id, title, release_date, poster_path, rank FROM films WHERE id = ?',
@@ -1747,9 +1785,10 @@ def battle_next():
     cur = conn.cursor()
 
     _expire_rankings(cur)
+    _purge_unwatched_from_battle(cur)
     conn.commit()
 
-    total = cur.execute('SELECT COUNT(*) as n FROM films').fetchone()['n']
+    total = cur.execute(f'SELECT COUNT(*) as n FROM films WHERE {WATCHED}').fetchone()['n']
     if total < 2:
         conn.close()
         return jsonify({'error': 'Need at least 2 films to battle'}), 400
@@ -1762,24 +1801,36 @@ def battle_next():
         challenger_id = state['challenger_id']
         opponent_id   = state['opponent_id']
     else:
+        # After a skip, avoid handing back the same challenger when there's an alternative
+        exclude = request.args.get('exclude', type=int)
+        def pick(ids):
+            return random.choice([i for i in ids if i != exclude] or ids)
+
+        # Recently watched films sit out as challengers; ranked ones can still be opponents
+        cutoff = _battle_cooldown_cutoff()
         unranked = [r['id'] for r in cur.execute(
-            'SELECT id FROM films WHERE rank IS NULL'
-        ).fetchall()]
+            f'SELECT id, datetime_last_watched FROM films WHERE rank IS NULL AND {WATCHED}'
+        ).fetchall() if _off_cooldown(r['datetime_last_watched'], cutoff)]
         ranked = cur.execute(
-            'SELECT id, rank FROM films WHERE rank IS NOT NULL ORDER BY rank DESC'
+            'SELECT id, rank, date_ranked, datetime_last_watched FROM films '
+            'WHERE rank IS NOT NULL ORDER BY rank DESC'
         ).fetchall()
+        rechallengers = [r['id'] for r in ranked[1:] if _off_cooldown(r['datetime_last_watched'], cutoff)]
+        restore_rank = restore_date = None
 
         if len(unranked) >= 2 and not ranked:
             # First ever battles — pick 2 random unranked
-            challenger_id, opponent_id = random.sample(unranked, 2)
-        elif unranked:
+            challenger_id = pick(unranked)
+            opponent_id   = random.choice([i for i in unranked if i != challenger_id])
+        elif unranked and ranked:
             # Normal case: random unranked vs bottom of ranked list
-            challenger_id = random.choice(unranked)
+            challenger_id = pick(unranked)
             opponent_id   = ranked[0]['id']
-        elif len(ranked) >= 2:
-            # All ranked: temporarily unrank a random non-bottom film
-            bottom_id     = ranked[0]['id']
-            challenger_id = random.choice([r['id'] for r in ranked if r['id'] != bottom_id])
+        elif rechallengers:
+            # All eligible films ranked: temporarily unrank a random non-bottom film
+            challenger_id = pick(rechallengers)
+            prev = next(r for r in ranked if r['id'] == challenger_id)
+            restore_rank, restore_date = prev['rank'], prev['date_ranked']
             cur.execute(
                 'UPDATE films SET rank = NULL, date_ranked = NULL WHERE id = ?',
                 (challenger_id,)
@@ -1791,16 +1842,18 @@ def battle_next():
             opponent_id = ranked[0]['id']
         else:
             conn.close()
-            return jsonify({'error': 'Not enough films to battle'}), 400
+            return jsonify({'error': 'Not enough films to battle — films watched in the last '
+                                     f'{BATTLE_COOLDOWN_DAYS} days sit out'}), 400
 
         cur.execute(
-            'INSERT OR REPLACE INTO battle_state (id, challenger_id, opponent_id) VALUES (1,?,?)',
-            (challenger_id, opponent_id)
+            'INSERT OR REPLACE INTO battle_state '
+            '(id, challenger_id, opponent_id, restore_rank, restore_date) VALUES (1,?,?,?,?)',
+            (challenger_id, opponent_id, restore_rank, restore_date)
         )
         conn.commit()
 
     ranked_count = cur.execute(
-        'SELECT COUNT(*) as n FROM films WHERE rank IS NOT NULL'
+        f'SELECT COUNT(*) as n FROM films WHERE rank IS NOT NULL AND {WATCHED}'
     ).fetchone()['n']
 
     result = jsonify({
@@ -1827,12 +1880,15 @@ def battle_result():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
+    _purge_unwatched_from_battle(cur)
+    conn.commit()
+
     state = cur.execute(
         'SELECT challenger_id, opponent_id FROM battle_state WHERE id = 1'
     ).fetchone()
     if not state:
         conn.close()
-        return jsonify({'error': 'No active battle'}), 400
+        return jsonify({'error': 'No active battle (a film may have been removed), loading a new matchup'}), 409
 
     challenger_id = state['challenger_id']
     opponent_id   = state['opponent_id']
@@ -1900,6 +1956,31 @@ def battle_result():
         return jsonify({'status': 'placed', 'new_rank': place_at})
 
 
+@app.route('/battle/skip', methods=['POST'])
+def battle_skip():
+    """Abandon the current battle without ranking anything; the next /battle/next starts fresh."""
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    _purge_unwatched_from_battle(cur)
+    state = cur.execute(
+        'SELECT challenger_id, restore_rank, restore_date FROM battle_state WHERE id = 1'
+    ).fetchone()
+    if state and state['restore_rank'] is not None:
+        # Challenger was pulled out of the rankings for this battle — put it back where it was
+        cur.execute('UPDATE films SET rank = rank + 1 WHERE rank >= ?', (state['restore_rank'],))
+        cur.execute('UPDATE films SET rank=?, date_ranked=? WHERE id=?',
+                    (state['restore_rank'], state['restore_date'], state['challenger_id']))
+    cur.execute('DELETE FROM battle_state WHERE id=1')
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'skipped', 'skipped_id': state['challenger_id'] if state else None})
+
+
 @app.route('/battle/rankings')
 def battle_rankings():
     if not _auth():
@@ -1909,7 +1990,7 @@ def battle_rankings():
     cur = conn.cursor()
     rows = cur.execute(
         'SELECT id, title, release_date, poster_path, rank, date_ranked '
-        'FROM films WHERE rank IS NOT NULL ORDER BY rank'
+        f'FROM films WHERE rank IS NOT NULL AND {WATCHED} ORDER BY rank'
     ).fetchall()
     conn.close()
     return jsonify([{
@@ -1930,6 +2011,23 @@ def _expire_game_rankings(cur):
         'UPDATE games SET rank = NULL, date_ranked = NULL '
         'WHERE date_ranked IS NOT NULL AND date_ranked < ?',
         (one_year_ago,)
+    )
+
+
+COMPLETED = "status = 'completed'"  # only completed games can battle
+
+
+def _purge_ineligible_from_game_battle(cur):
+    """Strip ranks from non-completed games, close rank gaps (e.g. after a deletion),
+    and drop the current battle if either game is no longer completed or no longer exists."""
+    cur.execute(f'UPDATE games SET rank = NULL, date_ranked = NULL WHERE rank IS NOT NULL AND NOT ({COMPLETED})')
+    ranked = cur.execute('SELECT id FROM games WHERE rank IS NOT NULL ORDER BY rank').fetchall()
+    for i, r in enumerate(ranked, start=1):
+        cur.execute('UPDATE games SET rank = ? WHERE id = ?', (i, r['id']))
+    cur.execute(
+        f'DELETE FROM game_battle_state WHERE id = 1 AND ('
+        f'challenger_id NOT IN (SELECT id FROM games WHERE {COMPLETED}) OR '
+        f'opponent_id NOT IN (SELECT id FROM games WHERE {COMPLETED}))'
     )
 
 
@@ -1965,12 +2063,13 @@ def game_battle_next():
     cur = conn.cursor()
 
     _expire_game_rankings(cur)
+    _purge_ineligible_from_game_battle(cur)
     conn.commit()
 
-    total = cur.execute('SELECT COUNT(*) as n FROM games').fetchone()['n']
+    total = cur.execute(f'SELECT COUNT(*) as n FROM games WHERE {COMPLETED}').fetchone()['n']
     if total < 2:
         conn.close()
-        return jsonify({'error': 'Need at least 2 games to battle'}), 400
+        return jsonify({'error': 'Need at least 2 completed games to battle'}), 400
 
     state = cur.execute(
         'SELECT challenger_id, opponent_id FROM game_battle_state WHERE id = 1'
@@ -1980,32 +2079,51 @@ def game_battle_next():
         challenger_id = state['challenger_id']
         opponent_id   = state['opponent_id']
     else:
-        unranked = [r['id'] for r in cur.execute('SELECT id FROM games WHERE rank IS NULL').fetchall()]
-        ranked   = cur.execute('SELECT id, rank FROM games WHERE rank IS NOT NULL ORDER BY rank DESC').fetchall()
+        # After a skip, avoid handing back the same challenger when there's an alternative
+        exclude = request.args.get('exclude', type=int)
+        def pick(ids):
+            return random.choice([i for i in ids if i != exclude] or ids)
+
+        # Recently completed games sit out as challengers; ranked ones can still be opponents
+        cutoff   = _battle_cooldown_cutoff()
+        unranked = [r['id'] for r in cur.execute(
+            f'SELECT id, date_completed FROM games WHERE rank IS NULL AND {COMPLETED}'
+        ).fetchall() if _off_cooldown(r['date_completed'], cutoff)]
+        ranked   = cur.execute(
+            'SELECT id, rank, date_ranked, date_completed FROM games WHERE rank IS NOT NULL ORDER BY rank DESC'
+        ).fetchall()
+        rechallengers = [r['id'] for r in ranked[1:] if _off_cooldown(r['date_completed'], cutoff)]
+        restore_rank = restore_date = None
 
         if len(unranked) >= 2 and not ranked:
-            challenger_id, opponent_id = random.sample(unranked, 2)
-        elif unranked:
-            challenger_id = random.choice(unranked)
+            challenger_id = pick(unranked)
+            opponent_id   = random.choice([i for i in unranked if i != challenger_id])
+        elif unranked and ranked:
+            challenger_id = pick(unranked)
             opponent_id   = ranked[0]['id']
-        elif len(ranked) >= 2:
-            bottom_id     = ranked[0]['id']
-            challenger_id = random.choice([r['id'] for r in ranked if r['id'] != bottom_id])
+        elif rechallengers:
+            challenger_id = pick(rechallengers)
+            prev = next(r for r in ranked if r['id'] == challenger_id)
+            restore_rank, restore_date = prev['rank'], prev['date_ranked']
             cur.execute('UPDATE games SET rank = NULL, date_ranked = NULL WHERE id = ?', (challenger_id,))
             conn.commit()
             ranked    = cur.execute('SELECT id, rank FROM games WHERE rank IS NOT NULL ORDER BY rank DESC').fetchall()
             opponent_id = ranked[0]['id']
         else:
             conn.close()
-            return jsonify({'error': 'Not enough games to battle'}), 400
+            return jsonify({'error': 'Not enough games to battle — games completed in the last '
+                                     f'{BATTLE_COOLDOWN_DAYS} days sit out'}), 400
 
         cur.execute(
-            'INSERT OR REPLACE INTO game_battle_state (id, challenger_id, opponent_id) VALUES (1,?,?)',
-            (challenger_id, opponent_id)
+            'INSERT OR REPLACE INTO game_battle_state '
+            '(id, challenger_id, opponent_id, restore_rank, restore_date) VALUES (1,?,?,?,?)',
+            (challenger_id, opponent_id, restore_rank, restore_date)
         )
         conn.commit()
 
-    ranked_count = cur.execute('SELECT COUNT(*) as n FROM games WHERE rank IS NOT NULL').fetchone()['n']
+    ranked_count = cur.execute(
+        f'SELECT COUNT(*) as n FROM games WHERE rank IS NOT NULL AND {COMPLETED}'
+    ).fetchone()['n']
     result = jsonify({
         'challenger':   _game_card(cur, challenger_id),
         'opponent':     _game_card(cur, opponent_id),
@@ -2031,10 +2149,13 @@ def game_battle_result():
     cur  = conn.cursor()
     now  = datetime.now(timezone.utc).isoformat()
 
+    _purge_ineligible_from_game_battle(cur)
+    conn.commit()
+
     state = cur.execute('SELECT challenger_id, opponent_id FROM game_battle_state WHERE id = 1').fetchone()
     if not state:
         conn.close()
-        return jsonify({'error': 'No active battle'}), 400
+        return jsonify({'error': 'No active battle (a game may have been removed), loading a new matchup'}), 409
 
     challenger_id = state['challenger_id']
     opponent_id   = state['opponent_id']
@@ -2087,6 +2208,31 @@ def game_battle_result():
         return jsonify({'status': 'placed', 'new_rank': opponent_rank + 1})
 
 
+@app.route('/game_battle/skip', methods=['POST'])
+def game_battle_skip():
+    """Abandon the current game battle without ranking anything; the next /game_battle/next starts fresh."""
+    if not _auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur  = conn.cursor()
+
+    _purge_ineligible_from_game_battle(cur)
+    state = cur.execute(
+        'SELECT challenger_id, restore_rank, restore_date FROM game_battle_state WHERE id = 1'
+    ).fetchone()
+    if state and state['restore_rank'] is not None:
+        # Challenger was pulled out of the rankings for this battle — put it back where it was
+        cur.execute('UPDATE games SET rank = rank + 1 WHERE rank >= ?', (state['restore_rank'],))
+        cur.execute('UPDATE games SET rank=?, date_ranked=? WHERE id=?',
+                    (state['restore_rank'], state['restore_date'], state['challenger_id']))
+    cur.execute('DELETE FROM game_battle_state WHERE id=1')
+    conn.commit()
+    conn.close()
+    return jsonify({'status': 'skipped', 'skipped_id': state['challenger_id'] if state else None})
+
+
 @app.route('/game_battle/rankings')
 def game_battle_rankings():
     if not _auth():
@@ -2095,7 +2241,8 @@ def game_battle_rankings():
     conn.row_factory = sqlite3.Row
     cur  = conn.cursor()
     rows = cur.execute(
-        'SELECT id, name, first_release_date, cover_image_id, rank, date_ranked FROM games WHERE rank IS NOT NULL ORDER BY rank'
+        'SELECT id, name, first_release_date, cover_image_id, rank, date_ranked '
+        f'FROM games WHERE rank IS NOT NULL AND {COMPLETED} ORDER BY rank'
     ).fetchall()
     conn.close()
     return jsonify([{
