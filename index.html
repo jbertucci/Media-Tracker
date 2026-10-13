@@ -262,6 +262,10 @@
     .drill-meta { font-size: 0.75rem; color: var(--muted); margin-top: 1px; }
 
     /* ── Battle overlay ── */
+    img[data-full] { cursor:zoom-in; }
+    #img-viewer { position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:300; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:16px; }
+    #img-viewer img { max-width:100%; max-height:calc(100% - 40px); object-fit:contain; border-radius:6px; -webkit-touch-callout:default; }
+    .img-viewer-hint { color:#aaa; font-size:0.75rem; text-align:center; }
     #battle-overlay { position:fixed; inset:0; background:var(--bg); z-index:150; display:flex; flex-direction:column; overflow:hidden; }
     .bo-header { background:var(--surface); border-bottom:1px solid var(--border); padding:14px 16px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
     .bo-header .bo-title { font-weight:700; color:var(--accent); font-size:1rem; }
@@ -599,6 +603,11 @@
     <textarea id="notes-textarea" placeholder="Write your review or journal entry&hellip;"></textarea>
     <button class="notes-save-btn" onclick="saveNotes()">Save</button>
   </div>
+</div>
+
+<div id="img-viewer" style="display:none" onclick="closeImageViewer()">
+  <img id="img-viewer-img" alt="">
+  <div class="img-viewer-hint">Long-press or right-click to copy &middot; tap anywhere to close</div>
 </div>
 
 <div id="battle-overlay" style="display:none">
@@ -1456,8 +1465,12 @@
     { value:'dropped',      label:'Dropped' },
   ];
 
+  // Google Books thumbnails are ~128px; dropping the page-curl and asking for fife=w800 gets up to 800px wide
+  function bookCoverFullUrl(url) {
+    return url && url.includes('books.google.') ? url.replace('&edge=curl', '') + '&fife=w800' : url;
+  }
   function bookCoverImg(url, cls) {
-    return url ? `<img class="${cls}" src="${url}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
+    return url ? `<img class="${cls}" src="${url}" data-full="${esc(bookCoverFullUrl(url))}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
   }
 
   function bookStatusBadge(status) {
@@ -1751,7 +1764,7 @@
   }
   function igdbCoverImg(imageId, cls, size = 'cover_big') {
     const url = igdbCoverUrl(imageId, size);
-    return url ? `<img class="${cls}" src="${url}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
+    return url ? `<img class="${cls}" src="${url}" data-full="${igdbCoverUrl(imageId, '1080p')}" alt="" loading="lazy">` : `<div class="${cls}"></div>`;
   }
 
   const STATUS_LABELS = {
@@ -2005,9 +2018,13 @@
     { value: 'dropped',       label: 'Dropped' },
   ];
 
+  // Cover Art Archive and iTunes both serve bigger sizes by swapping the size segment of the URL
+  function albumCoverFullUrl(url) {
+    return url && url.replace(/\/front-(250|500)$/, '/front-1200').replace(/\/\d+x\d+bb\.jpg$/, '/1200x1200bb.jpg');
+  }
   function albumCoverImg(url, cls) {
     return url
-      ? `<img class="${cls}" src="${url}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\'${cls}\'></div>'">`
+      ? `<img class="${cls}" src="${url}" data-full="${esc(albumCoverFullUrl(url))}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\'${cls}\'></div>'">`
       : `<div class="${cls}"></div>`;
   }
 
@@ -2484,8 +2501,36 @@
   function posterImg(path, cls, size = 'w92') {
     const url = posterUrl(path, size);
     return url
-      ? `<img class="${cls}" src="${url}" alt="" loading="lazy">`
+      ? `<img class="${cls}" src="${url}" data-full="${posterUrl(path, 'w780')}" alt="" loading="lazy">`
       : `<div class="${cls}"></div>`;
+  }
+
+  // ── Full-size image viewer ───────────────────────────────────────────────
+  // Any <img data-full="..."> opens here; shows the thumbnail instantly, then swaps in the big one.
+
+  document.addEventListener('click', e => {
+    const img = e.target.closest('img[data-full]');
+    if (!img) return;
+    e.stopPropagation();
+    openImageViewer(img.currentSrc || img.src, img.dataset.full);
+  }, true);
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('img-viewer').style.display !== 'none') closeImageViewer();
+  });
+
+  function openImageViewer(thumbSrc, fullSrc) {
+    const viewerImg = document.getElementById('img-viewer-img');
+    viewerImg.src = thumbSrc;
+    document.getElementById('img-viewer').style.display = 'flex';
+    const hi = new Image();
+    hi.onload = () => { if (viewerImg.src === thumbSrc) viewerImg.src = fullSrc; };
+    hi.src = fullSrc;
+  }
+
+  function closeImageViewer() {
+    document.getElementById('img-viewer').style.display = 'none';
+    document.getElementById('img-viewer-img').src = '';
   }
 
   function today() {

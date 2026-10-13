@@ -3,3 +3,4 @@ tmdb_analytics.db
 __pycache__/
 *.pyc
 .claude/
+backups/
