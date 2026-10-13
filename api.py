@@ -322,7 +322,7 @@ def movies():
     base = '''SELECT id, title, release_date, datetime_last_watched, watch_count, poster_path,
                      CASE WHEN notes IS NOT NULL AND notes != '' THEN 1 ELSE 0 END as has_notes,
                      COALESCE(watch_status, 'watched') as status,
-                     status as tmdb_status
+                     status as tmdb_status, runtime
               FROM films'''
     if status_filter:
         rows = conn.execute(
@@ -343,6 +343,7 @@ def movies():
             'has_notes':   bool(r[6]),
             'status':      r[7],
             'tmdb_status': r[8],
+            'runtime':     r[9],
         }
         for r in rows
     ])

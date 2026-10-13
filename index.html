@@ -838,6 +838,7 @@
                     data-id="${m.id}" data-title="${esc(m.title)}" data-status="${m.status}" data-date=""
                     style="cursor:pointer">${statusBadge(m.status)}</span>
               ${m.status === 'watched' ? '&middot; ' + m.watch_count + 'x watched' + (m.last_watched ? ' &middot; ' + m.last_watched.slice(0,10) : '') : ''}
+              ${m.status === 'want_to_watch' && m.runtime > 0 ? '&middot; ' + fmtRuntime(m.runtime) : ''}
               ${m.status === 'want_to_watch' && m.tmdb_status ? ' &middot; ' + tmdbStatusBadge(m.tmdb_status) : ''}
             </div>
           </div>
@@ -2531,6 +2532,11 @@
   function closeImageViewer() {
     document.getElementById('img-viewer').style.display = 'none';
     document.getElementById('img-viewer-img').src = '';
+  }
+
+  function fmtRuntime(minutes) {
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
   }
 
   function today() {
