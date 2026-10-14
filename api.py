@@ -292,14 +292,17 @@ def add():
             first_watched=watch_ts,
             last_watched=watch_ts,
         )
+        conn = sqlite3.connect(DB_PATH)
         if status == 'want_to_watch':
-            conn = sqlite3.connect(DB_PATH)
             conn.execute(
                 "UPDATE films SET watch_status='want_to_watch', watch_count=0, datetime_last_watched=NULL WHERE id=?",
                 (film_id,)
             )
-            conn.commit()
-            conn.close()
+        else:
+            # Logging a watch of a film already on the want-to-watch list moves it to watched
+            conn.execute("UPDATE films SET watch_status='watched' WHERE id=?", (film_id,))
+        conn.commit()
+        conn.close()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -810,11 +813,31 @@ def games_remove(game_id):
 def movie_update_status(film_id):
     if not _auth():
         return jsonify({'error': 'Unauthorized'}), 401
-    status = (request.get_json(silent=True) or {}).get('status', '').strip()
+    data   = request.get_json(silent=True) or {}
+    status = data.get('status', '').strip()
     if status not in ('watched', 'want_to_watch'):
         return jsonify({'error': 'Invalid status'}), 400
     conn = sqlite3.connect(DB_PATH)
-    conn.execute('UPDATE films SET watch_status=? WHERE id=?', (status, film_id))
+    row = conn.execute("SELECT COALESCE(watch_status,'watched') FROM films WHERE id=?", (film_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Film not found'}), 404
+    if row[0] == 'want_to_watch' and status == 'watched':
+        # Finally watched it — log the watch on the given date (default: now)
+        watch_ts = datetime.now(timezone.utc).isoformat()
+        if data.get('date_watched'):
+            try:
+                watch_ts = _parse_watched_date(data['date_watched'])
+            except ValueError as e:
+                conn.close()
+                return jsonify({'error': str(e)}), 400
+        conn.execute(
+            "UPDATE films SET watch_status='watched', watch_count=COALESCE(watch_count,0)+1, "
+            'datetime_last_watched=? WHERE id=?',
+            (watch_ts, film_id)
+        )
+    else:
+        conn.execute('UPDATE films SET watch_status=? WHERE id=?', (status, film_id))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

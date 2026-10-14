@@ -585,6 +585,7 @@
       <div class="status-opt" data-value="want_to_play" onclick="selectStatus(this)">Want to Play</div>
       <div class="status-opt" data-value="dropped"      onclick="selectStatus(this)">Dropped</div>
     </div>
+    <label for="status-picker-date" id="status-picker-date-label" style="display:none;font-size:0.85rem;color:var(--muted);margin-bottom:4px">Date watched</label>
     <input type="date" id="status-picker-date" value="">
     <label id="status-picker-100-label" style="display:none;font-size:0.85rem;color:var(--muted);cursor:pointer;margin-bottom:12px">
       <input type="checkbox" id="status-picker-100"> 100% completed
@@ -972,8 +973,21 @@
 
   let statusPickerTarget = null;
 
+  // Movies only ask for a date when moving off the want-to-watch list, since that logs a watch
+  function statusNeedsDate(type, status) {
+    if (type === 'movie') return status === 'watched' && statusPickerTarget?.from === 'want_to_watch';
+    const DATE_MAP = { book: ['read','dropped'], album: ['listened','dropped'] };
+    return (DATE_MAP[type] || DATE_STATUSES).includes(status);
+  }
+
+  function showStatusDate(type, status) {
+    const show = statusNeedsDate(type, status);
+    document.getElementById('status-picker-date').style.display = show ? 'block' : 'none';
+    document.getElementById('status-picker-date-label').style.display = show && type === 'movie' ? 'block' : 'none';
+  }
+
   function openStatusPicker(type, id, name, currentStatus, currentDate) {
-    statusPickerTarget = { type, id };
+    statusPickerTarget = { type, id, from: currentStatus };
     document.getElementById('status-picker-title').textContent = name;
     const opts = type === 'movie' ? MOVIE_STATUSES
                : type === 'book'  ? BOOK_STATUSES
@@ -985,8 +999,7 @@
     ).join('');
     const dateEl = document.getElementById('status-picker-date');
     dateEl.value = currentDate ? currentDate.slice(0, 10) : today();
-    const DATE_MAP = { book: ['read','dropped'], album: ['listened','dropped'] };
-    dateEl.style.display = (DATE_MAP[type] || DATE_STATUSES).includes(currentStatus) ? 'block' : 'none';
+    showStatusDate(type, currentStatus);
     document.getElementById('status-picker-100').checked = false;
     document.getElementById('status-picker-100-label').style.display =
       statusPickerTarget.type === 'game' && currentStatus === 'completed' ? 'flex' : 'none';
@@ -996,10 +1009,7 @@
   function selectStatus(el) {
     document.querySelectorAll('.status-opt').forEach(o => o.classList.remove('selected'));
     el.classList.add('selected');
-    const DATE_MAP = { book: ['read','dropped'], album: ['listened','dropped'] };
-    const dateGroup = DATE_MAP[statusPickerTarget?.type] || DATE_STATUSES;
-    const showDate  = dateGroup.includes(el.dataset.value);
-    document.getElementById('status-picker-date').style.display = showDate ? 'block' : 'none';
+    showStatusDate(statusPickerTarget?.type, el.dataset.value);
     document.getElementById('status-picker-100-label').style.display =
       statusPickerTarget?.type === 'game' && el.dataset.value === 'completed' ? 'flex' : 'none';
   }
@@ -1012,7 +1022,10 @@
     const date_completed = dateEl.style.display !== 'none' ? dateEl.value : null;
     const completed_fully = document.getElementById('status-picker-100')?.checked || false;
     let body;
-    if (type === 'movie')      body = { status };
+    if (type === 'movie') {
+      if (date_completed === '') { toast('Pick the date you watched it', 'error'); return; }
+      body = { status, ...(date_completed ? { date_watched: date_completed } : {}) };
+    }
     else if (type === 'book')  body = { status, date_read: date_completed };
     else if (type === 'album') body = { status, date_listened: date_completed };
     else                       body = { status, date_completed, ...(status === 'completed' ? { completed_fully } : {}) };
@@ -1639,7 +1652,7 @@
     ).join('');
     const dateEl = document.getElementById('status-picker-date');
     dateEl.value = currentDate ? currentDate.slice(0,10) : today();
-    dateEl.style.display = ['read','dropped'].includes(currentStatus) ? 'block' : 'none';
+    showStatusDate('book', currentStatus);
     document.getElementById('status-picker-modal').style.display = 'flex';
   }
 
