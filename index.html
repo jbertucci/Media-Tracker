@@ -2552,8 +2552,10 @@
     return h ? `${h}h${m ? ` ${m}m` : ''}` : `${m}m`;
   }
 
+  // Local calendar date (toISOString() is UTC, which rolls over to tomorrow in US evenings)
   function today() {
-    return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   function esc(str) {
